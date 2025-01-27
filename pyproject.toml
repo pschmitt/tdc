@@ -1,0 +1,13 @@
+[project]
+name = "tdc"
+version = "0.1.0"
+description = "todoist cli"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "rich-argparse>=1.6.0",
+    "todoist-api-python>=2.1.7",
+]
+
+[project.scripts]
+tdc = "tdc:main"
