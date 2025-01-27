@@ -1,15 +1,14 @@
 #!/usr/bin/env python3
 
 import sys
+import json
 import argparse
 import re
 
 from todoist_api_python.api import TodoistAPI
-from todoist_api_python.models import Task
 from rich.console import Console
 from rich.table import Table
 
-# For colorizing help output:
 try:
   from rich_argparse import RawTextRichHelpFormatter
 except ImportError:
@@ -21,7 +20,7 @@ except ImportError:
 
 console = Console()
 
-# Global toggles (will be set after arg parsing)
+# Global toggles (set after arg parsing)
 STRIP_EMOJIS = False
 
 def remove_emojis(text):
@@ -62,7 +61,6 @@ def find_project_id_partial(api, project_name_partial):
 
   project_name_lower = project_name_partial.lower()
   for project in projects:
-    # Compare partial
     if project_name_lower in project.name.lower():
       return project.id
   return None
@@ -84,10 +82,15 @@ def find_section_id_partial(api, project_id, section_name_partial):
       return section.id
   return None
 
-def list_tasks(api, show_ids=False, show_subtasks=False, project_name=None, section_name=None):
+
+##########################
+# TASKS
+##########################
+
+def list_tasks(api, show_ids=False, show_subtasks=False, project_name=None, section_name=None, output_json=False):
   """
-  List tasks, optionally filtered by project name (partial) and/or section name (partial).
-  By default, subtasks (parent_id != None) are excluded unless show_subtasks=True.
+  List tasks, optionally filtered by project name (partial), section name (partial),
+  and whether to show subtasks. If output_json=True, print JSON instead of a table.
   """
   try:
     all_tasks = api.get_tasks()
@@ -130,7 +133,28 @@ def list_tasks(api, show_ids=False, show_subtasks=False, project_name=None, sect
     console.print(f"[red]Failed to fetch projects: {e}[/red]")
     sys.exit(1)
 
-  # Prepare a rich table (no borders)
+  if output_json:
+    # Build a JSON-friendly list
+    data = []
+    for task in all_tasks:
+      project_name_str = ""
+      if task.project_id in projects_dict:
+        project_name_str = maybe_strip_emojis(projects_dict[task.project_id].name)
+
+      data.append({
+        "id": task.id,
+        "content": maybe_strip_emojis(task.content),
+        "project_name": project_name_str,
+        "section_id": task.section_id,
+        "priority": task.priority,
+        "due": maybe_strip_emojis(task.due.string) if task.due else None,
+        "parent_id": task.parent_id
+      })
+
+    console.print(json.dumps(data, indent=2))
+    return
+
+  # Otherwise, print a Rich table
   table = Table(title="Todoist Tasks", box=None)
   if show_ids:
     table.add_column("ID", style="cyan", no_wrap=True)
@@ -218,10 +242,7 @@ def create_task(api, content, priority=None, due=None, reminder=None, project_na
     # If a reminder was specified, try to create it
     if reminder:
       try:
-        api.add_reminder(
-          task_id=new_task.id,
-          due_string=reminder
-        )
+        api.add_reminder(task_id=new_task.id, due_string=reminder)
         console.print(f"[green]Reminder set for task '{content}' with due string '{reminder}'.[/green]")
       except Exception as e:
         console.print(f"[yellow]Failed to add reminder: {e}[/yellow]")
@@ -259,9 +280,44 @@ def mark_task_done(api, content, project_name=None):
 
   console.print(f"[yellow]No matching task found for '{content}'.[/yellow]")
 
-def list_projects(api, show_ids=False):
+def delete_task(api, content, project_name=None):
   """
-  List all projects, sorted by name.
+  Delete the first matching task with the given content (case-insensitive).
+  Optionally limit to a project by partial name.
+  """
+  project_id = None
+  if project_name:
+    project_id = find_project_id_partial(api, project_name)
+    if not project_id:
+      console.print(f"[red]No project found matching '{project_name}'.[/red]")
+      sys.exit(1)
+
+  try:
+    tasks = api.get_tasks(project_id=project_id) if project_id else api.get_tasks()
+  except Exception as e:
+    console.print(f"[red]Failed to fetch tasks: {e}[/red]")
+    sys.exit(1)
+
+  for task in tasks:
+    if task.content.strip().lower() == content.strip().lower():
+      try:
+        api.delete_task(task.id)
+        console.print(f"[green]Task '{content}' deleted successfully.[/green]")
+        return
+      except Exception as e:
+        console.print(f"[red]Failed to delete task '{content}': {e}[/red]")
+        sys.exit(1)
+
+  console.print(f"[yellow]No matching task found for '{content}'.[/yellow]")
+
+
+##########################
+# PROJECTS
+##########################
+
+def list_projects(api, show_ids=False, output_json=False):
+  """
+  List all projects, sorted by name. If output_json=True, prints JSON instead of a table.
   """
   try:
     projects = api.get_projects()
@@ -272,6 +328,17 @@ def list_projects(api, show_ids=False):
   # Sort by project name
   projects.sort(key=lambda p: p.name.lower())
 
+  if output_json:
+    data = []
+    for project in projects:
+      data.append({
+        "id": project.id,
+        "name": maybe_strip_emojis(project.name)
+      })
+    console.print(json.dumps(data, indent=2))
+    return
+
+  # Otherwise, use a Rich table
   table = Table(title="Todoist Projects", box=None)
   if show_ids:
     table.add_column("ID", style="cyan", no_wrap=True)
@@ -279,7 +346,6 @@ def list_projects(api, show_ids=False):
 
   for project in projects:
     name_str = maybe_strip_emojis(project.name)
-
     row = []
     if show_ids:
       row.append(str(project.id))
@@ -304,9 +370,31 @@ def create_project(api, name):
     console.print(f"[red]Failed to create project '{name}': {e}[/red]")
     sys.exit(1)
 
-def list_sections(api, show_ids, project_name):
+def delete_project(api, name_partial):
+  """
+  Delete the first project whose name contains the given partial (case-insensitive).
+  """
+  project_id = find_project_id_partial(api, name_partial)
+  if not project_id:
+    console.print(f"[yellow]No project found matching '{name_partial}'.[/yellow]")
+    return
+
+  try:
+    api.delete_project(project_id)
+    console.print(f"[green]Project matching '{name_partial}' deleted successfully.[/green]")
+  except Exception as e:
+    console.print(f"[red]Failed to delete project matching '{name_partial}': {e}[/red]")
+    sys.exit(1)
+
+
+##########################
+# SECTIONS
+##########################
+
+def list_sections(api, show_ids, project_name, output_json=False):
   """
   List sections for a given project (partial match).
+  If output_json=True, prints JSON instead of a table.
   """
   project_id = find_project_id_partial(api, project_name)
   if not project_id:
@@ -322,6 +410,16 @@ def list_sections(api, show_ids, project_name):
   # Sort by section name
   sections.sort(key=lambda s: s.name.lower())
 
+  if output_json:
+    data = []
+    for section in sections:
+      data.append({
+        "id": section.id,
+        "name": maybe_strip_emojis(section.name)
+      })
+    console.print(json.dumps(data, indent=2))
+    return
+
   table = Table(title=f"Sections in Project '{project_name}'", box=None)
   if show_ids:
     table.add_column("ID", style="cyan", no_wrap=True)
@@ -336,6 +434,45 @@ def list_sections(api, show_ids, project_name):
     table.add_row(*row)
 
   console.print(table)
+
+def delete_section(api, project_name, section_partial):
+  """
+  Delete the first section in the specified project (partial match) 
+  whose name contains the given partial (case-insensitive).
+  """
+  project_id = find_project_id_partial(api, project_name)
+  if not project_id:
+    console.print(f"[red]No project found matching '{project_name}'.[/red]")
+    sys.exit(1)
+
+  try:
+    sections = api.get_sections(project_id=project_id)
+  except Exception as e:
+    console.print(f"[red]Failed to fetch sections: {e}[/red]")
+    sys.exit(1)
+
+  section_id = None
+  section_partial_lower = section_partial.lower()
+  for s in sections:
+    if section_partial_lower in s.name.lower():
+      section_id = s.id
+      break
+
+  if not section_id:
+    console.print(f"[yellow]No section found matching '{section_partial}'.[/yellow]")
+    return
+
+  try:
+    api.delete_section(section_id)
+    console.print(f"[green]Section matching '{section_partial}' deleted successfully.[/green]")
+  except Exception as e:
+    console.print(f"[red]Failed to delete section matching '{section_partial}': {e}[/red]")
+    sys.exit(1)
+
+
+##########################
+# MAIN
+##########################
 
 def main():
   parser = argparse.ArgumentParser(
@@ -358,7 +495,9 @@ def main():
 
   subparsers = parser.add_subparsers(dest="command", help="[magenta]Available commands[/magenta]")
 
-  # Task subcommand
+  ################
+  # task
+  ################
   task_parser = subparsers.add_parser(
     "task",
     help="[cyan]Manage tasks[/cyan]",
@@ -366,7 +505,7 @@ def main():
   )
   task_subparsers = task_parser.add_subparsers(dest="task_command", help="[magenta]Task commands[/magenta]")
 
-  # tdc --api-key XXX task list [--project MYPROJECT] [--section xxx] [--ids] [--subtasks]
+  # task list
   task_list_parser = task_subparsers.add_parser(
     "list",
     help="List tasks",
@@ -376,8 +515,9 @@ def main():
   task_list_parser.add_argument("--section", help="Filter tasks by section name (partial match)")
   task_list_parser.add_argument("--ids", action="store_true", help="Show ID columns")
   task_list_parser.add_argument("--subtasks", action="store_true", help="Include subtasks")
+  task_list_parser.add_argument("--json", action="store_true", help="Output in JSON format")
 
-  # tdc --api-key XXX task create "brush teeth" --priority 4 --due xxx --reminder xxx --project XXX --section YYY
+  # task create
   task_create_parser = task_subparsers.add_parser(
     "create",
     help="Create a new task",
@@ -390,7 +530,7 @@ def main():
   task_create_parser.add_argument("--project", default=None, help="Project name (partial match)")
   task_create_parser.add_argument("--section", default=None, help="Section name (partial match) (requires --project)")
 
-  # tdc task done "brush teeth" [--project XXX]
+  # task done
   task_done_parser = task_subparsers.add_parser(
     "done",
     help="Mark a task as done",
@@ -399,7 +539,18 @@ def main():
   task_done_parser.add_argument("content", help="Task content to mark as done")
   task_done_parser.add_argument("--project", default=None, help="Project name (partial match)")
 
-  # Project subcommand
+  # task delete
+  task_delete_parser = task_subparsers.add_parser(
+    "delete",
+    help="Delete a task",
+    formatter_class=RawTextRichHelpFormatter
+  )
+  task_delete_parser.add_argument("content", help="Task content to delete")
+  task_delete_parser.add_argument("--project", default=None, help="Project name (partial match)")
+
+  ################
+  # project
+  ################
   project_parser = subparsers.add_parser(
     "project",
     help="[cyan]Manage projects[/cyan]",
@@ -407,15 +558,16 @@ def main():
   )
   project_subparsers = project_parser.add_subparsers(dest="project_command", help="[magenta]Project commands[/magenta]")
 
-  # tdc --api-key XXX project list [--ids]
+  # project list
   project_list_parser = project_subparsers.add_parser(
     "list",
     help="List all projects",
     formatter_class=RawTextRichHelpFormatter
   )
   project_list_parser.add_argument("--ids", action="store_true", help="Show ID columns")
+  project_list_parser.add_argument("--json", action="store_true", help="Output in JSON format")
 
-  # tdc --api-key XXX project create "MyProject"
+  # project create
   project_create_parser = project_subparsers.add_parser(
     "create",
     help="Create a new project",
@@ -423,18 +575,45 @@ def main():
   )
   project_create_parser.add_argument("name", help="Project name")
 
-  # Section subcommand
+  # project delete
+  project_delete_parser = project_subparsers.add_parser(
+    "delete",
+    help="Delete a project",
+    formatter_class=RawTextRichHelpFormatter
+  )
+  project_delete_parser.add_argument("name", help="Partial name match for project to delete")
+
+  ################
+  # section
+  ################
   section_parser = subparsers.add_parser(
     "section",
     help="[cyan]Manage sections[/cyan]",
     formatter_class=RawTextRichHelpFormatter
   )
-  section_parser.add_argument("--project", required=True, help="Project name (partial match) to list sections for")
-  section_parser.add_argument("--ids", action="store_true", help="Show ID columns")
+  section_subparsers = section_parser.add_subparsers(dest="section_command", help="[magenta]Section commands[/magenta]")
+
+  # section list
+  section_list_parser = section_subparsers.add_parser(
+    "list",
+    help="List sections in a project",
+    formatter_class=RawTextRichHelpFormatter
+  )
+  section_list_parser.add_argument("--project", required=True, help="Project name (partial match)")
+  section_list_parser.add_argument("--ids", action="store_true", help="Show ID columns")
+  section_list_parser.add_argument("--json", action="store_true", help="Output in JSON format")
+
+  # section delete
+  section_delete_parser = section_subparsers.add_parser(
+    "delete",
+    help="Delete a section in a project",
+    formatter_class=RawTextRichHelpFormatter
+  )
+  section_delete_parser.add_argument("--project", required=True, help="Project name (partial match)")
+  section_delete_parser.add_argument("--section", required=True, help="Section name (partial match to delete)")
 
   args = parser.parse_args()
 
-  # Set global strip-emojis
   global STRIP_EMOJIS
   STRIP_EMOJIS = args.strip_emojis
 
@@ -448,7 +627,8 @@ def main():
         show_ids=args.ids,
         show_subtasks=args.subtasks,
         project_name=args.project,
-        section_name=args.section
+        section_name=args.section,
+        output_json=args.json
       )
     elif args.task_command == "create":
       create_task(
@@ -462,22 +642,32 @@ def main():
       )
     elif args.task_command == "done":
       mark_task_done(api, content=args.content, project_name=args.project)
+    elif args.task_command == "delete":
+      delete_task(api, content=args.content, project_name=args.project)
     else:
       task_parser.print_help()
 
   elif args.command == "project":
     if args.project_command == "list":
-      list_projects(api, show_ids=args.ids)
+      list_projects(api, show_ids=args.ids, output_json=args.json)
     elif args.project_command == "create":
       create_project(api, args.name)
+    elif args.project_command == "delete":
+      delete_project(api, args.name)
     else:
       project_parser.print_help()
 
   elif args.command == "section":
-    list_sections(api, show_ids=args.ids, project_name=args.project)
+    if args.section_command == "list":
+      list_sections(api, show_ids=args.ids, project_name=args.project, output_json=args.json)
+    elif args.section_command == "delete":
+      delete_section(api, project_name=args.project, section_partial=args.section)
+    else:
+      section_parser.print_help()
 
   else:
     parser.print_help()
+
 
 if __name__ == "__main__":
   main()
