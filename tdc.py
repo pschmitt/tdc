@@ -567,6 +567,19 @@ def main():
         action="store_true",
         help="Remove emojis from displayed text.",
     )
+    parser.add_argument("-i", "--ids", action="store_true", help="Show ID columns")
+    parser.add_argument(
+        "-j", "--json", action="store_true", help="Output in JSON format"
+    )
+    parser.add_argument(
+        "-p", "--project", help="Filter tasks by project name (partial match)"
+    )
+    parser.add_argument(
+        "-s", "--subtasks", action="store_true", help="Include subtasks"
+    )
+    parser.add_argument(
+        "-S", "--section", help="Filter tasks by section name (partial match)"
+    )
 
     subparsers = parser.add_subparsers(
         dest="command", help="[magenta]Available commands[/magenta]"
@@ -584,6 +597,7 @@ def main():
     task_subparsers = task_parser.add_subparsers(
         dest="task_command", help="[magenta]Task commands[/magenta]"
     )
+    task_parser.set_defaults(task_command="list")
 
     # task list
     task_list_parser = task_subparsers.add_parser(
@@ -593,17 +607,19 @@ def main():
         formatter_class=RawTextRichHelpFormatter,
     )
     task_list_parser.add_argument(
+        "-i", "--ids", action="store_true", help="Show ID columns"
+    )
+    task_list_parser.add_argument(
+        "-j", "--json", action="store_true", help="Output in JSON format"
+    )
+    task_list_parser.add_argument(
         "-p", "--project", help="Filter tasks by project name (partial match)"
     )
     task_list_parser.add_argument(
         "-S", "--section", help="Filter tasks by section name (partial match)"
     )
-    task_list_parser.add_argument("--ids", action="store_true", help="Show ID columns")
     task_list_parser.add_argument(
         "-s", "--subtasks", action="store_true", help="Include subtasks"
-    )
-    task_list_parser.add_argument(
-        "-j", "--json", action="store_true", help="Output in JSON format"
     )
 
     # task create
@@ -665,6 +681,8 @@ def main():
         help="[cyan]Manage projects[/cyan]",
         formatter_class=RawTextRichHelpFormatter,
     )
+    project_parser.set_defaults(project_command="list")
+
     project_subparsers = project_parser.add_subparsers(
         dest="project_command", help="[magenta]Project commands[/magenta]"
     )
@@ -712,6 +730,7 @@ def main():
     section_subparsers = section_parser.add_subparsers(
         dest="section_command", help="[magenta]Section commands[/magenta]"
     )
+    section_parser.set_defaults(section_command="list")
 
     # section list
     section_list_parser = section_subparsers.add_parser(
@@ -752,16 +771,7 @@ def main():
     api = TodoistAPI(args.api_key)
 
     if args.command in ["task", "tasks", "t"]:
-        if args.task_command in ["list", "ls", "l"]:
-            list_tasks(
-                api,
-                show_ids=args.ids,
-                show_subtasks=args.subtasks,
-                project_name=args.project,
-                section_name=args.section,
-                output_json=args.json,
-            )
-        elif args.task_command in ["create", "cr", "c"]:
+        if args.task_command in ["create", "cr", "c"]:
             create_task(
                 api,
                 content=args.content,
@@ -776,27 +786,33 @@ def main():
         elif args.task_command in ["delete", "del", "d"]:
             delete_task(api, content=args.content, project_name=args.project)
         else:
-            task_parser.print_help()
+            list_tasks(
+                api,
+                show_ids=args.ids,
+                show_subtasks=args.subtasks,
+                project_name=args.project,
+                section_name=args.section,
+                output_json=args.json,
+            )
 
     elif args.command in ["projects", "project", "proj", "p"]:
-        if args.project_command in ["list", "ls", "l"]:
-            list_projects(api, show_ids=args.ids, output_json=args.json)
-        elif args.project_command in ["create", "cr", "c"]:
+        if args.project_command in ["create", "cr", "c"]:
             create_project(api, args.name)
         elif args.project_command in ["delete", "del", "d"]:
             delete_project(api, args.name)
         else:
-            project_parser.print_help()
+            list_projects(api, show_ids=args.ids, output_json=args.json)
 
     elif args.command in ["sections", "section", "sect", "sec", "s"]:
-        if args.section_command in ["list", "ls", "l"]:
-            list_sections(
-                api, show_ids=args.ids, project_name=args.project, output_json=args.json
-            )
-        elif args.section_command in ["delete", "del", "d"]:
+        if args.section_command in ["delete", "del", "d"]:
             delete_section(api, project_name=args.project, section_partial=args.section)
         else:
-            section_parser.print_help()
+            if not args.project:
+               section_parser.print_help()
+            else:
+                list_sections(
+                    api, show_ids=args.ids, project_name=args.project, output_json=args.json
+                )
 
     else:
         parser.print_help()
