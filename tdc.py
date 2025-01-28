@@ -198,7 +198,7 @@ def list_tasks(
         return
 
     # Otherwise, print a Rich table
-    table = Table(title="Todoist Tasks", box=None, pad_edge=False)
+    table = Table(box=None, pad_edge=False)
     if show_ids:
         table.add_column("ID", style="cyan", no_wrap=True)
     table.add_column("Content", style="white")
@@ -401,7 +401,7 @@ def list_projects(api, show_ids=False, output_json=False):
         return
 
     # Otherwise, use a Rich table
-    table = Table(title="Todoist Projects", box=None, pad_edge=False)
+    table = Table(box=None, pad_edge=False)
     if show_ids:
         table.add_column("ID", style="cyan", no_wrap=True)
     table.add_column("Name", style="white")
@@ -490,9 +490,7 @@ def list_sections(api, show_ids, project_name, output_json=False):
         console.print(json.dumps(data, indent=2))
         return
 
-    table = Table(
-        title=f"Sections in Project '{project_name}'", box=None, pad_edge=False
-    )
+    table = Table(box=None, pad_edge=False)
     if show_ids:
         table.add_column("ID", style="cyan", no_wrap=True)
     table.add_column("Name", style="white")
