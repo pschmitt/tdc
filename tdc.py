@@ -808,10 +808,13 @@ def main():
             delete_section(api, project_name=args.project, section_partial=args.section)
         else:
             if not args.project:
-               section_parser.print_help()
+                section_parser.print_help()
             else:
                 list_sections(
-                    api, show_ids=args.ids, project_name=args.project, output_json=args.json
+                    api,
+                    show_ids=args.ids,
+                    project_name=args.project,
+                    output_json=args.json,
                 )
 
     else:
