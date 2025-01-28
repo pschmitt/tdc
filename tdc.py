@@ -764,6 +764,11 @@ def main():
 
     args = parser.parse_args()
 
+    # Check for missing subcommands and default to `task list`
+    if args.command is None:
+        args.command = "task"
+        args.task_command = "list"
+
     global STRIP_EMOJIS
     STRIP_EMOJIS = args.strip_emojis
 
