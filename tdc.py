@@ -778,7 +778,7 @@ def main():
         else:
             task_parser.print_help()
 
-    elif args.command == ["project", "proj", "p"]:
+    elif args.command in ["projects", "project", "proj", "p"]:
         if args.project_command in ["list", "ls", "l"]:
             list_projects(api, show_ids=args.ids, output_json=args.json)
         elif args.project_command in ["create", "cr", "c"]:
@@ -788,12 +788,12 @@ def main():
         else:
             project_parser.print_help()
 
-    elif args.command == ["section", "sect", "sec", "s"]:
+    elif args.command in ["sections", "section", "sect", "sec", "s"]:
         if args.section_command in ["list", "ls", "l"]:
             list_sections(
                 api, show_ids=args.ids, project_name=args.project, output_json=args.json
             )
-        elif args.section_command == "delete":
+        elif args.section_command in ["delete", "del", "d"]:
             delete_section(api, project_name=args.project, section_partial=args.section)
         else:
             section_parser.print_help()
