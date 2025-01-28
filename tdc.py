@@ -194,7 +194,7 @@ def list_tasks(
                 }
             )
 
-        console.print(json.dumps(data, indent=2))
+        console.print_json(json.dumps(data))
         return
 
     # Otherwise, print a Rich table
@@ -397,7 +397,7 @@ def list_projects(api, show_ids=False, output_json=False):
         data = []
         for project in projects:
             data.append({"id": project.id, "name": maybe_strip_emojis(project.name)})
-        console.print(json.dumps(data, indent=2))
+        console.print_json(json.dumps(data))
         return
 
     # Otherwise, use a Rich table
@@ -487,7 +487,7 @@ def list_sections(api, show_ids, project_name, output_json=False):
         data = []
         for section in sections:
             data.append({"id": section.id, "name": maybe_strip_emojis(section.name)})
-        console.print(json.dumps(data, indent=2))
+        console.print_json(json.dumps(data))
         return
 
     table = Table(box=None, pad_edge=False)
