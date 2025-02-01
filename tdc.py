@@ -625,7 +625,7 @@ def main():
     # task create
     task_create_parser = task_subparsers.add_parser(
         "create",
-        aliases=["cr", "c"],
+        aliases=["cr", "c", "add", "a"],
         help="Create a new task",
         formatter_class=RawTextRichHelpFormatter,
     )
@@ -704,7 +704,7 @@ def main():
     # project create
     project_create_parser = project_subparsers.add_parser(
         "create",
-        aliases=["cr", "c"],
+        aliases=["cr", "c", "add", "a"],
         help="Create a new project",
         formatter_class=RawTextRichHelpFormatter,
     )
@@ -776,7 +776,7 @@ def main():
     api = TodoistAPI(args.api_key)
 
     if args.command in ["task", "tasks", "t"]:
-        if args.task_command in ["create", "cr", "c"]:
+        if args.task_command in ["create", "cr", "c", "add", "a"]:
             create_task(
                 api,
                 content=args.content,
@@ -801,7 +801,7 @@ def main():
             )
 
     elif args.command in ["projects", "project", "proj", "p"]:
-        if args.project_command in ["create", "cr", "c"]:
+        if args.project_command in ["create", "cr", "c", "add", "a"]:
             create_project(api, args.name)
         elif args.project_command in ["delete", "del", "d"]:
             delete_project(api, args.name)
