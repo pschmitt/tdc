@@ -496,7 +496,7 @@ async def list_sections(client, show_ids, project_name, output_json=False):
         row = []
         if show_ids:
             row.append(str(s.id))
-        row.append(s.name)
+        row.append(maybe_strip_emojis(s.name))
         table.add_row(*row)
 
     console.print(table)
