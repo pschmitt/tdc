@@ -506,6 +506,43 @@ def list_sections(api, show_ids, project_name, output_json=False):
     console.print(table)
 
 
+def create_section(api, project_name, section_name):
+    """
+    Create a new section in the specified project if it doesn't already exist.
+    """
+    project_id = find_project_id_partial(api, project_name)
+    if not project_id:
+        console.print(f"[red]No project found matching '{project_name}'.[/red]")
+        sys.exit(1)
+
+    try:
+        sections = api.get_sections(project_id=project_id)
+    except Exception as e:
+        console.print(
+            f"[red]Failed to fetch sections for project '{project_name}': {e}[/red]"
+        )
+        sys.exit(1)
+
+    # Check if a section with the same name already exists (case-insensitive)
+    for section in sections:
+        if section.name.strip().lower() == section_name.strip().lower():
+            console.print(
+                f"[yellow]Section '{section_name}' already exists in project '{project_name}', skipping creation.[/yellow]"
+            )
+            return
+
+    try:
+        new_section = api.add_section(name=section_name, project_id=project_id)
+        console.print(
+            f"[green]Section '{section_name}' created successfully in project '{project_name}' (ID: {new_section.id}).[/green]"
+        )
+    except Exception as e:
+        console.print(
+            f"[red]Failed to create section '{section_name}' in project '{project_name}': {e}[/red]"
+        )
+        sys.exit(1)
+
+
 def delete_section(api, project_name, section_partial):
     """
     Delete the first section in the specified project (partial match)
@@ -663,7 +700,7 @@ def main():
     # task delete
     task_delete_parser = task_subparsers.add_parser(
         "delete",
-        aliases=["del", "d"],
+        aliases=["del", "d", "remove", "rm"],
         help="Delete a task",
         formatter_class=RawTextRichHelpFormatter,
     )
@@ -712,7 +749,10 @@ def main():
 
     # project delete
     project_delete_parser = project_subparsers.add_parser(
-        "delete", help="Delete a project", formatter_class=RawTextRichHelpFormatter
+        "delete",
+        aliases=["del", "d", "remove", "rm"],
+        help="Delete a project",
+        formatter_class=RawTextRichHelpFormatter,
     )
     project_delete_parser.add_argument(
         "name", help="Partial name match for project to delete"
@@ -749,9 +789,24 @@ def main():
         "-j", "--json", action="store_true", help="Output in JSON format"
     )
 
+    # section create
+    section_create_parser = section_subparsers.add_parser(
+        "create",
+        aliases=["cr", "c", "add", "a"],
+        help="Create a new section in a project",
+        formatter_class=RawTextRichHelpFormatter,
+    )
+    section_create_parser.add_argument(
+        "section_name", help="Name of the section to create"
+    )
+    section_create_parser.add_argument(
+        "-p", "--project", required=True, help="Project name (partial match)"
+    )
+
     # section delete
     section_delete_parser = section_subparsers.add_parser(
         "delete",
+        aliases=["del", "d", "remove", "rm"],
         help="Delete a section in a project",
         formatter_class=RawTextRichHelpFormatter,
     )
@@ -759,7 +814,7 @@ def main():
         "-p", "--project", required=True, help="Project name (partial match)"
     )
     section_delete_parser.add_argument(
-        "-S", "--section", required=True, help="Section name (partial match to delete)"
+        "section_name", help="Name of the section to create"
     )
 
     args = parser.parse_args()
@@ -788,7 +843,7 @@ def main():
             )
         elif args.task_command == "done":
             mark_task_done(api, content=args.content, project_name=args.project)
-        elif args.task_command in ["delete", "del", "d"]:
+        elif args.task_command in ["delete", "del", "d", "remove", "rm"]:
             delete_task(api, content=args.content, project_name=args.project)
         else:
             list_tasks(
@@ -803,14 +858,20 @@ def main():
     elif args.command in ["projects", "project", "proj", "p"]:
         if args.project_command in ["create", "cr", "c", "add", "a"]:
             create_project(api, args.name)
-        elif args.project_command in ["delete", "del", "d"]:
+        elif args.project_command in ["delete", "del", "d", "remove", "rm"]:
             delete_project(api, args.name)
         else:
             list_projects(api, show_ids=args.ids, output_json=args.json)
 
     elif args.command in ["sections", "section", "sect", "sec", "s"]:
-        if args.section_command in ["delete", "del", "d"]:
-            delete_section(api, project_name=args.project, section_partial=args.section)
+        if args.section_command in ["delete", "del", "d", "remove", "rm"]:
+            delete_section(
+                api, project_name=args.project, section_partial=args.section_name
+            )
+        elif args.section_command in ["create", "cr", "c", "add", "a"]:
+            create_section(
+                api, project_name=args.project, section_name=args.section_name
+            )
         else:
             if not args.project:
                 section_parser.print_help()
