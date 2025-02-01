@@ -262,14 +262,14 @@ def list_tasks(
     table.add_column("Due", style="green")
 
     for task in all_tasks:
-        due_str = task.due.string if task.due else ""
-        project_name_str = ""
+        due_str = task.due.string if task.due else "N/A"
+        project_name_str = "N/A"
         if task.project_id in projects_dict:
             project_name_str = maybe_strip_emojis(projects_dict[task.project_id].name)
-        section_name_str = ""
+        section_name_str = "N/A"
         if show_section_col and task.section_id in section_mapping:
             section_name_str = maybe_strip_emojis(section_mapping[task.section_id].name)
-        parent_task_str = ""
+        parent_task_str = "N/A"
         if show_subtasks and task.parent_id:
             if task.parent_id in task_dict:
                 parent_task_str = maybe_strip_emojis(task_dict[task.parent_id].content)
