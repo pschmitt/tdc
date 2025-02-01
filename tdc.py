@@ -424,13 +424,17 @@ def delete_task(api, content, project_name=None):
         if task.content.strip().lower() == content.strip().lower():
             try:
                 api.delete_task(task.id)
-                console.print(f"[green]Task '{content}' deleted successfully.[/green]")
+                console.print(
+                    f"[green]Task '[blue]{task.content}[/blue]' deleted successfully.[/green]"
+                )
                 return
             except Exception as e:
-                console.print(f"[red]Failed to delete task '{content}': {e}[/red]")
+                console.print(
+                    f"[red]Failed to delete task '[blue]{task.content}[/blue]': {e}[/red]"
+                )
                 sys.exit(1)
 
-    console.print(f"[yellow]No matching task found for '{content}'.[/yellow]")
+    console.print(f"[yellow]No task matching '[blue]{content}[/blue]'.[/yellow]")
 
 
 ##########################
@@ -484,15 +488,15 @@ def create_project(api, name):
         for project in projects:
             if project.name.strip().lower() == name.strip().lower():
                 console.print(
-                    f"[yellow]Project '{name}' already exists, skipping creation.[/yellow]"
+                    f"[yellow]Project '[blue]{name}[/blue]' already exists, skipping creation.[/yellow]"
                 )
                 return
         new_project = api.add_project(name=name)
         console.print(
-            f"[green]Project '{name}' created successfully (ID: {new_project.id}).[/green]"
+            f"[green]Project '[blue]{name}[/blue]' created successfully (ID: [yellow]{new_project.id}[/yellow]).[/green]"
         )
     except Exception as e:
-        console.print(f"[red]Failed to create project '{name}': {e}[/red]")
+        console.print(f"[red]Failed to create project '[blue]{name}[/blue]': {e}[/red]")
         sys.exit(1)
 
 
@@ -502,17 +506,19 @@ def delete_project(api, name_partial):
     """
     project_id = find_project_id_partial(api, name_partial)
     if not project_id:
-        console.print(f"[yellow]No project found matching '{name_partial}'.[/yellow]")
+        console.print(
+            f"[yellow]No project matching '[blue]{name_partial}[/blue]' found.[/yellow]"
+        )
         return
 
     try:
         api.delete_project(project_id)
         console.print(
-            f"[green]Project matching '{name_partial}' deleted successfully.[/green]"
+            f"[green]Project matching '[blue]{name_partial}[/blue]' deleted successfully.[/green]"
         )
     except Exception as e:
         console.print(
-            f"[red]Failed to delete project matching '{name_partial}': {e}[/red]"
+            f"[red]Failed to delete project matching '[blue]{name_partial}[/blue]': {e}[/red]"
         )
         sys.exit(1)
 
@@ -529,7 +535,9 @@ def list_sections(api, show_ids, project_name, output_json=False):
     """
     project_id = find_project_id_partial(api, project_name)
     if not project_id:
-        console.print(f"[red]No project found matching '{project_name}'.[/red]")
+        console.print(
+            f"[red]No project found matching '[blue]{project_name}[/blue]'.[/red]"
+        )
         sys.exit(1)
 
     try:
@@ -570,14 +578,16 @@ def create_section(api, project_name, section_name):
     """
     project_id = find_project_id_partial(api, project_name)
     if not project_id:
-        console.print(f"[red]No project found matching '{project_name}'.[/red]")
+        console.print(
+            f"[red]No project found matching '[blue]{project_name}[/blue]'.[/red]"
+        )
         sys.exit(1)
 
     try:
         sections = api.get_sections(project_id=project_id)
     except Exception as e:
         console.print(
-            f"[red]Failed to fetch sections for project '{project_name}': {e}[/red]"
+            f"[red]Failed to fetch sections for project '[blue]{project_name}[/blue]': {e}[/red]"
         )
         sys.exit(1)
 
@@ -585,18 +595,18 @@ def create_section(api, project_name, section_name):
     for section in sections:
         if section.name.strip().lower() == section_name.strip().lower():
             console.print(
-                f"[yellow]Section '{section_name}' already exists in project '{project_name}', skipping creation.[/yellow]"
+                f"[yellow]Section '[blue]{section_name}[/blue]' already exists in project '[blue]{project_name}[/blue]', skipping creation.[/yellow]"
             )
             return
 
     try:
         new_section = api.add_section(name=section_name, project_id=project_id)
         console.print(
-            f"[green]Section '{section_name}' created successfully in project '{project_name}' (ID: {new_section.id}).[/green]"
+            f"[green]Section '[blue]{section_name}[/blue]' created successfully in project '[blue]{project_name}[/blue]' (ID: [magenta]{new_section.id}[/magenta]).[/green]"
         )
     except Exception as e:
         console.print(
-            f"[red]Failed to create section '{section_name}' in project '{project_name}': {e}[/red]"
+            f"[red]Failed to create section '[blue]{section_name}[/blue]' in project '[blue]{project_name}[/blue]': {e}[/red]"
         )
         sys.exit(1)
 
@@ -608,7 +618,7 @@ def delete_section(api, project_name, section_partial):
     """
     project_id = find_project_id_partial(api, project_name)
     if not project_id:
-        console.print(f"[red]No project found matching '{project_name}'.[/red]")
+        console.print(f"[red]No project found matching '[blue]{project_name}[/blue]'.[/red]")
         sys.exit(1)
 
     try:
@@ -618,26 +628,28 @@ def delete_section(api, project_name, section_partial):
         sys.exit(1)
 
     section_id = None
+    section_name = None
     section_partial_lower = section_partial.lower()
     for s in sections:
         if section_partial_lower in s.name.lower():
             section_id = s.id
+            section_name = s.name
             break
 
     if not section_id:
         console.print(
-            f"[yellow]No section found matching '{section_partial}'.[/yellow]"
+            f"[yellow]No section found matching '[blue]{section_partial}[/blue]'.[/yellow]"
         )
         return
 
     try:
         api.delete_section(section_id)
         console.print(
-            f"[green]Section matching '{section_partial}' deleted successfully.[/green]"
+            f"[green]Section '[blue]{section_name}[/blue]' deleted successfully.[/green]"
         )
     except Exception as e:
         console.print(
-            f"[red]Failed to delete section matching '{section_partial}': {e}[/red]"
+            f"[red]Failed to delete section '[blue]{section_name}[/blue]': {e}[/red]"
         )
         sys.exit(1)
 
