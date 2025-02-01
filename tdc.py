@@ -123,10 +123,6 @@ def list_tasks(
     section_name=None,
     output_json=False,
 ):
-    """
-    List tasks, optionally filtered by project name (partial), section name (partial),
-    and whether to show subtasks. If output_json=True, print JSON instead of a table.
-    """
     try:
         all_tasks = api.get_tasks()
     except Exception as e:
@@ -138,6 +134,7 @@ def list_tasks(
         all_tasks = [t for t in all_tasks if t.parent_id is None]
 
     # Filter by project partial match
+    project_id = None
     if project_name:
         project_id = find_project_id_partial(api, project_name)
         if not project_id:
@@ -152,7 +149,6 @@ def list_tasks(
                 "[red]You must specify a --project if you provide a --section.[/red]"
             )
             sys.exit(1)
-        project_id = find_project_id_partial(api, project_name)
         section_id = find_section_id_partial(api, project_id, section_name)
         if not section_id:
             console.print(
@@ -160,9 +156,6 @@ def list_tasks(
             )
             sys.exit(1)
         all_tasks = [t for t in all_tasks if t.section_id == section_id]
-
-    # Sort by task content
-    all_tasks.sort(key=lambda t: t.content.lower())
 
     # Fetch all projects so we can display project names
     try:
@@ -172,8 +165,56 @@ def list_tasks(
         console.print(f"[red]Failed to fetch projects: {e}[/red]")
         sys.exit(1)
 
+    # Determine if the section column should be displayed and build a mapping from section IDs to sections.
+    # If a project is provided, only show the section column if that project actually has sections.
+    show_section_col = False
+    section_mapping = {}
+    if project_name:
+        try:
+            sections = api.get_sections(project_id=project_id)
+            if sections:
+                show_section_col = True
+                section_mapping = {s.id: s for s in sections}
+        except Exception:
+            show_section_col = False
+    else:
+        # When no project filter is provided, show section column if any task has a section.
+        if any(t.section_id for t in all_tasks):
+            show_section_col = True
+            unique_project_ids = {t.project_id for t in all_tasks if t.section_id}
+            for pid in unique_project_ids:
+                try:
+                    secs = api.get_sections(project_id=pid)
+                    for s in secs:
+                        section_mapping[s.id] = s
+                except Exception:
+                    continue
+
+    # Build a dictionary for looking up parent task names.
+    task_dict = {t.id: t for t in all_tasks}
+
+    # Sort tasks by project name, then by section name (if applicable), and finally by task content.
+    all_tasks.sort(
+        key=lambda t: (
+            (
+                projects_dict[t.project_id].name.lower()
+                if t.project_id in projects_dict
+                else ""
+            ),
+            (
+                (
+                    section_mapping[t.section_id].name.lower()
+                    if show_section_col and t.section_id in section_mapping
+                    else ""
+                )
+                if show_section_col
+                else ""
+            ),
+            t.content.lower(),
+        )
+    )
+
     if output_json:
-        # Build a JSON-friendly list
         data = []
         for task in all_tasks:
             project_name_str = ""
@@ -181,51 +222,68 @@ def list_tasks(
                 project_name_str = maybe_strip_emojis(
                     projects_dict[task.project_id].name
                 )
-
-            data.append(
-                {
-                    "id": task.id,
-                    "content": maybe_strip_emojis(task.content),
-                    "project_name": project_name_str,
-                    "section_id": task.section_id,
-                    "priority": task.priority,
-                    "due": maybe_strip_emojis(task.due.string) if task.due else None,
-                    "parent_id": task.parent_id,
-                }
-            )
-
+            section_name_str = None
+            if show_section_col and task.section_id in section_mapping:
+                section_name_str = maybe_strip_emojis(
+                    section_mapping[task.section_id].name
+                )
+            parent_task_str = None
+            if show_subtasks and task.parent_id:
+                if task.parent_id in task_dict:
+                    parent_task_str = maybe_strip_emojis(
+                        task_dict[task.parent_id].content
+                    )
+            entry = {
+                "id": task.id,
+                "content": maybe_strip_emojis(task.content),
+                "project_name": project_name_str,
+                "priority": task.priority,
+                "due": maybe_strip_emojis(task.due.string) if task.due else None,
+            }
+            if show_section_col:
+                entry["section_name"] = section_name_str
+            if show_subtasks:
+                entry["parent_task"] = parent_task_str
+            data.append(entry)
         console.print_json(json.dumps(data))
         return
 
-    # Otherwise, print a Rich table
+    # Build the Rich table with extra columns as needed.
     table = Table(box=None, pad_edge=False)
     if show_ids:
         table.add_column("ID", style="cyan", no_wrap=True)
     table.add_column("Content", style="white")
-    table.add_column("Project", style="magenta")  # New column for project name
-    if show_ids:
-        table.add_column("Section ID", style="magenta")
+    if show_subtasks:
+        table.add_column("Parent Task", style="white")
+    table.add_column("Project", style="magenta")
+    if show_section_col:
+        table.add_column("Section", style="magenta")
     table.add_column("Priority", style="yellow")
     table.add_column("Due", style="green")
 
     for task in all_tasks:
         due_str = task.due.string if task.due else ""
-
-        # Resolve project name
         project_name_str = ""
         if task.project_id in projects_dict:
             project_name_str = maybe_strip_emojis(projects_dict[task.project_id].name)
-
+        section_name_str = ""
+        if show_section_col and task.section_id in section_mapping:
+            section_name_str = maybe_strip_emojis(section_mapping[task.section_id].name)
+        parent_task_str = ""
+        if show_subtasks and task.parent_id:
+            if task.parent_id in task_dict:
+                parent_task_str = maybe_strip_emojis(task_dict[task.parent_id].content)
         row = []
         if show_ids:
             row.append(str(task.id))
         row.append(maybe_strip_emojis(task.content))
+        if show_subtasks:
+            row.append(parent_task_str)
         row.append(project_name_str)
-        if show_ids:
-            row.append(str(task.section_id) if task.section_id else "")
+        if show_section_col:
+            row.append(section_name_str)
         row.append(str(task.priority))
         row.append(maybe_strip_emojis(due_str))
-
         table.add_row(*row)
 
     console.print(table)
