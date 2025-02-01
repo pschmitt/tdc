@@ -28,6 +28,7 @@ TASK_COLOR = "blue"
 PROJECT_COLOR = "yellow"
 SECTION_COLOR = "red"
 ID_COLOR = "magenta"
+NA = "[italic dim]N/A[/italic dim]"
 
 
 ###############################################################################
@@ -266,24 +267,24 @@ async def list_tasks(
             row.append(str(task.id))
         row.append(maybe_strip_emojis(task.content))
         if show_subtasks:
-            parent_str = "[italic dim]N/A[/italic dim]"
+            parent_str = NA
             if task.parent_id and task.parent_id in task_dict:
                 parent_str = maybe_strip_emojis(task_dict[task.parent_id].content)
             row.append(parent_str)
 
-        proj_str = "[italic dim]N/A[/italic dim]"
+        proj_str = NA
         if task.project_id in projects_dict:
             proj_str = maybe_strip_emojis(projects_dict[task.project_id].name)
         row.append(proj_str)
 
         if show_section_col:
-            sname = "[italic dim]N/A[/italic dim]"
+            sname = NA
             if task.section_id in section_mapping:
                 sname = maybe_strip_emojis(section_mapping[task.section_id].name)
             row.append(sname)
 
         row.append(str(task.priority))
-        due_str = task.due.string if task.due else "[italic dim]N/A[/italic dim]"
+        due_str = task.due.string if task.due else NA
         row.append(maybe_strip_emojis(due_str))
         table.add_row(*row)
 
