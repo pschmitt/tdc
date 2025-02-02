@@ -227,7 +227,7 @@ async def list_tasks(
             p_name = (
                 projects_dict[task.project_id].name
                 if task.project_id in projects_dict
-                else ""
+                else None
             )
             s_name = (
                 section_mapping[task.section_id].name
@@ -242,7 +242,7 @@ async def list_tasks(
             entry = {
                 "id": task.id,
                 "content": maybe_strip_emojis(task.content),
-                "project": maybe_strip_emojis(p_name),
+                "project": maybe_strip_emojis(p_name) if p_name else None,
                 "priority": task.priority,
                 "due": maybe_strip_emojis(task.due.string) if task.due else None,
                 "section": maybe_strip_emojis(s_name) if s_name else None,
