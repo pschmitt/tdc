@@ -65,6 +65,8 @@ def remove_emojis(text):
         "\u200d"  # ZERO WIDTH JOINER
         "\ufe0e-\ufe0f"  # VARIATION SELECTOR-15, -16
         "\u2700-\u27BF"  # Dingbats (includes ✍)
+        "\u2300-\u23FF"  # Misc Technical (includes ⏰)
+        "\u2600-\u26FF"  # Misc Symbols (includes ♂, ♀, etc.)
         "]+",
         flags=re.UNICODE,
     )
