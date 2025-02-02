@@ -129,9 +129,17 @@ class TodoistClient:
 ###############################################################################
 # Lookups
 ###############################################################################
-async def find_project_id_partial(client, project_name_partial):
+async def find_project_id_partial(client, project_input):
     projects = await client.get_projects()
-    psearch = project_name_partial.lower()
+
+    # Check if input is a numeric ID
+    if project_input.isdigit():
+        for p in projects:
+            if str(p.id) == project_input:
+                return p.id
+
+    # Fallback to partial name search
+    psearch = project_input.lower()
     for p in projects:
         if psearch in p.name.lower():
             return p.id
