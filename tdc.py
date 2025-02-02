@@ -2,6 +2,7 @@
 import sys
 import json
 import argparse
+import os
 import re
 import asyncio
 from typing import List
@@ -21,6 +22,7 @@ except ImportError:
 
 console = Console()
 
+API_TOKEN = os.getenv("TODOIST_API_TOKEN") or os.getenv("TODOIST_API_KEY")
 STRIP_EMOJIS = False
 
 # Color constants
@@ -574,7 +576,14 @@ async def async_main():
         allow_abbrev=False,
         formatter_class=RawTextRichHelpFormatter,
     )
-    global_parser.add_argument("-k", "--api-key", required=True, help="Todoist API key")
+    global_parser.add_argument(
+        "-k",
+        "--api-key",
+        "--api-token",
+        help="Your Todoist API key",
+        required=not bool(API_TOKEN),
+    )
+
     global_parser.add_argument(
         "-E",
         "--strip-emojis",
@@ -736,7 +745,15 @@ async def async_main():
     global STRIP_EMOJIS
     STRIP_EMOJIS = args.strip_emojis
 
-    api = TodoistAPI(args.api_key)
+    # Use provided API key or fallback to environment variable
+    api_key = args.api_key or API_TOKEN
+    if not api_key:
+        console.print(
+            "[red]Error: API key is required. Provide it with --api-key or --api-token or set TODOIST_API_TOKEN/TODOIST_API_KEY environment variable.[/red]"
+        )
+        sys.exit(2)
+
+    api = TodoistAPI(api_key)
     client = TodoistClient(api)
 
     # ---------------------------------------------------------------------
