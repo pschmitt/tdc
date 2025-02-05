@@ -165,6 +165,7 @@ async def list_tasks(
     project_name=None,
     section_name=None,
     output_json=False,
+    due_today=False,
 ):
     if project_name:
         pid = await find_project_id_partial(client, project_name)
@@ -178,9 +179,7 @@ async def list_tasks(
     if not show_subtasks:
         tasks = [t for t in tasks if t.parent_id is None]
 
-    projects = await client.get_projects()
-    projects_dict = {p.id: p for p in projects}
-
+    # Existing section filtering and mapping
     section_mapping = {}
     show_section_col = False
     if section_name:
@@ -210,6 +209,21 @@ async def list_tasks(
                 secs = await client.get_sections(upid)
                 for s in secs:
                     section_mapping[s.id] = s
+
+    if due_today:
+        from datetime import datetime, date
+
+        today = date.today()
+        tasks = [
+            t
+            for t in tasks
+            if t.due
+            and getattr(t.due, "date", None)
+            and datetime.strptime(t.due.date, "%Y-%m-%d").date() <= today
+        ]
+
+    projects = await client.get_projects()
+    projects_dict = {p.id: p for p in projects}
 
     task_dict = {t.id: t for t in tasks}
 
@@ -636,7 +650,7 @@ async def async_main():
 
     # Make a small function to parse subcommand + leftover for each 'command':
     def parse_task_args(argv: List[str]):
-        # For "task" command, sub-commands: list, create, done, delete
+        # For "task" command, sub-commands: list, today, create, done, delete, etc.
         p = argparse.ArgumentParser(
             prog="tdc task",
             formatter_class=RawTextRichHelpFormatter,
@@ -650,12 +664,19 @@ async def async_main():
                 "list",
                 "ls",
                 "l",
+
+                "today",
+                "to",
+
                 "create",
                 "cr",
                 "c",
+
                 "add",
                 "a",
+
                 "done",
+
                 "delete",
                 "del",
                 "d",
@@ -768,7 +789,6 @@ async def async_main():
     # 3) Command dispatch
     # ---------------------------------------------------------------------
     if command in ["task", "tasks", "t"]:
-        # subcommand = e.g. "list", "create", "done", "delete", ...
         if subcommand in ["list", "ls", "l"]:
             await list_tasks(
                 client,
@@ -778,8 +798,17 @@ async def async_main():
                 section_name=args.section,
                 output_json=args.json,
             )
+        elif subcommand in ["today", "to"]:
+            await list_tasks(
+                client,
+                show_ids=args.ids,
+                show_subtasks=args.subtasks,
+                project_name=args.project,
+                section_name=args.section,
+                output_json=args.json,
+                due_today=True,  # List tasks due today or overdue
+            )
         elif subcommand in ["create", "cr", "c", "add", "a"]:
-            # 'content' is in task_args.content
             if not task_args.content:
                 console.print("[red]Please provide a task content.[/red]")
                 sys.exit(1)
@@ -831,7 +860,6 @@ async def async_main():
                 sys.exit(1)
             await delete_project(client, task_args.name)
         else:
-            # default "list"
             await list_projects(client, show_ids=args.ids, output_json=args.json)
 
     elif command in ["section", "sect", "sec", "s"]:
@@ -874,7 +902,6 @@ async def async_main():
                 section_partial=task_args.section_name,
             )
         else:
-            # default "list"
             if not args.project:
                 console.print(
                     "[red]Please provide --project for listing sections[/red]"
