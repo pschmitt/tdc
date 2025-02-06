@@ -6,7 +6,6 @@ import os
 import re
 import asyncio
 from datetime import datetime, date
-from typing import List
 
 from todoist_api_python.api import TodoistAPI
 from rich.console import Console
@@ -663,18 +662,18 @@ async def list_labels(client, show_ids=False, output_json=False):
     except Exception as e:
         console.print(f"[red]Failed to fetch labels: {e}[/red]")
         sys.exit(1)
-    labels.sort(key=lambda l: l.name.lower())
+    labels.sort(key=lambda la: la.name.lower())
     if output_json:
-        data = [{"id": l.id, "name": maybe_strip_emojis(l.name)} for l in labels]
+        data = [{"id": la.id, "name": maybe_strip_emojis(la.name)} for la in labels]
         console.print_json(json.dumps(data))
         return
     table = Table(box=None, pad_edge=False)
     if show_ids:
         table.add_column("ID", style="cyan", no_wrap=True)
     table.add_column("Name", style="white")
-    for l in labels:
-        row = [str(l.id)] if show_ids else []
-        row.append(maybe_strip_emojis(l.name))
+    for la in labels:
+        row = [str(la.id)] if show_ids else []
+        row.append(maybe_strip_emojis(la.name))
         table.add_row(*row)
     console.print(table)
 
@@ -682,9 +681,9 @@ async def list_labels(client, show_ids=False, output_json=False):
 async def create_label(client, name):
     try:
         labels = await asyncio.to_thread(client.api.get_labels)
-        for l in labels:
-            if l.name.strip().lower() == name.strip().lower():
-                console.print(f"[yellow]Label {l.name} already exists.[/yellow]")
+        for la in labels:
+            if la.name.strip().lower() == name.strip().lower():
+                console.print(f"[yellow]Label {la.name} already exists.[/yellow]")
                 return
         new_label = await asyncio.to_thread(client.api.add_label, name=name)
         console.print(
@@ -699,9 +698,9 @@ async def update_label(client, name, new_name):
     try:
         labels = await asyncio.to_thread(client.api.get_labels)
         target = None
-        for l in labels:
-            if l.name.strip().lower() == name.strip().lower():
-                target = l
+        for la in labels:
+            if la.name.strip().lower() == name.strip().lower():
+                target = la
                 break
         if not target:
             console.print(f"[yellow]No matching label found for '{name}'.[/yellow]")
@@ -721,9 +720,9 @@ async def delete_label(client, name_partial):
     try:
         labels = await asyncio.to_thread(client.api.get_labels)
         target = None
-        for l in labels:
-            if name_partial.lower() in l.name.lower():
-                target = l
+        for la in labels:
+            if name_partial.lower() in la.name.lower():
+                target = la
                 break
         if not target:
             console.print(f"[yellow]No label found matching '{name_partial}'.[/yellow]")
