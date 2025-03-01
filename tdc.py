@@ -1,26 +1,22 @@
 #!/usr/bin/env python3
-import sys
-import json
-import argparse
-import os
-import re
-import asyncio
-from datetime import datetime, date
 
-from todoist_api_python.api import TodoistAPI
+import argparse
+import asyncio
+import json
+import logging
+import os
+import sys
+from datetime import date, datetime
+
+import regex
 from rich.console import Console
 from rich.table import Table
-
-try:
-    from rich_argparse import RawTextRichHelpFormatter
-except ImportError:
-    print(
-        "You need to install 'rich-argparse' for colorized help.\n"
-        "Install it via: pip install rich-argparse"
-    )
-    sys.exit(1)
+from rich_argparse import RawTextRichHelpFormatter
+from todoist_api_python.api import TodoistAPI
 
 console = Console()
+
+LOGGER = logging.getLogger(__name__)
 
 API_TOKEN = os.getenv("TODOIST_API_TOKEN") or os.getenv("TODOIST_API_KEY")
 STRIP_EMOJIS = False
@@ -49,30 +45,7 @@ def section_str(section_obj):
 
 
 def remove_emojis(text):
-    if not text:
-        return text
-    emoji_pattern = re.compile(
-        "["
-        "\U0001F600-\U0001F64F"  # emoticons
-        "\U0001F300-\U0001F5FF"  # symbols & pictographs
-        "\U0001F680-\U0001F6FF"  # transport & map symbols
-        "\U0001F1E0-\U0001F1FF"  # flags
-        "\U0001F700-\U0001F77F"  # alchemical symbols
-        "\U0001F780-\U0001F7FF"  # Geometric Shapes Extended
-        "\U0001F800-\U0001F8FF"  # Supplemental Arrows-C
-        "\U0001F900-\U0001F9FF"  # Supplemental Symbols and Pictographs
-        "\U0001FA00-\U0001FA6F"  # Chess symbols, etc.
-        "\U0001FA70-\U0001FAFF"  # More recently added emojis
-        "\u200c"  # ZERO WIDTH NON-JOINER
-        "\u200d"  # ZERO WIDTH JOINER
-        "\ufe0e-\ufe0f"  # VARIATION SELECTOR-15, -16
-        "\u2700-\u27BF"  # Dingbats (includes ✍)
-        "\u2300-\u23FF"  # Misc Technical (includes ⏰)
-        "\u2600-\u26FF"  # Misc Symbols (includes ♂, ♀, etc.)
-        "]+",
-        flags=re.UNICODE,
-    )
-    return emoji_pattern.sub(r"", text).lstrip()
+    return regex.sub(r"\p{Emoji}", "", text) if text else text
 
 
 def maybe_strip_emojis(text):

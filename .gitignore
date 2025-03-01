@@ -6,3 +6,4 @@ dist/
 archive/
 result
 *.bak
+.direnv/

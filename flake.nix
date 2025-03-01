@@ -31,6 +31,7 @@
           ];
 
           propagatedBuildInputs = with pkgs.python3Packages; [
+            regex
             rich-argparse
             todoist-api-python
           ];

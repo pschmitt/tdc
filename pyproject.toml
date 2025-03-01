@@ -5,9 +5,17 @@ description = "todoist cli"
 readme = "README.md"
 requires-python = ">=3.9"
 dependencies = [
+    "regex>=2024.11.6",
     "rich-argparse>=1.6.0",
     "todoist-api-python>=2.1.3",
 ]
 
 [project.scripts]
 tdc = "tdc:main"
+
+[dependency-groups]
+dev = [
+    "ipython>=8.18.1",
+    "isort>=6.0.1",
+    "ruff>=0.9.9",
+]
