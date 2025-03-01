@@ -328,7 +328,9 @@ async def create_task(
     if not force:
         tasks = await client.get_tasks(pid) if pid else await client.get_tasks()
         for t in tasks:
-            if remove_emojis(t.content.strip().lower()) == remove_emojis(content.strip().lower()):
+            if remove_emojis(t.content.strip().lower()) == remove_emojis(
+                content.strip().lower()
+            ):
                 console.print(
                     f"[yellow]Task {task_str(t)} already exists, skipping.[/yellow]"
                 )
@@ -718,9 +720,9 @@ async def async_main():
     # Define global alias dictionaries.
     cmd_aliases = {
         "task": ["tasks", "t", "ta"],
-        "project": ["projects" "proj", "pro", "p"],
-        "section": ["sections" "sect", "sec", "s"],
-        "label": ["labels" "lab", "lbl"],
+        "project": ["projects", "proj", "pro", "p"],
+        "section": ["sections", "sect", "sec", "s"],
+        "label": ["labels", "lab", "lbl"],
     }
     subcmd_aliases = {
         "list": ["ls", "l"],
@@ -730,10 +732,17 @@ async def async_main():
         "today": ["td", "to"],
     }
 
+    # Create a common parent parser for --project and --section options.
+    common_parser = argparse.ArgumentParser(add_help=False)
+    common_parser.add_argument("-p", "--project", help="Project partial name match")
+    common_parser.add_argument("-S", "--section", help="Section partial name match")
+
+    # Main parser (global options can appear before the subcommand)
     parser = argparse.ArgumentParser(
         prog="tdc",
         formatter_class=RawTextRichHelpFormatter,
         description=("[bold cyan]CLI for Todoist[/bold cyan]"),
+        parents=[common_parser],
     )
     # Global options
     parser.add_argument(
@@ -754,11 +763,9 @@ async def async_main():
     )
     parser.add_argument("-i", "--ids", action="store_true", help="Show ID columns")
     parser.add_argument("-j", "--json", action="store_true", help="Output JSON")
-    parser.add_argument("-p", "--project", help="Project partial name match")
     parser.add_argument(
         "-s", "--subtasks", action="store_true", help="Include subtasks"
     )
-    parser.add_argument("-S", "--section", help="Section partial name match")
 
     subparsers = parser.add_subparsers(
         dest="command", required=True, help="Subcommand to run"
@@ -770,6 +777,7 @@ async def async_main():
         aliases=cmd_aliases["task"],
         help="Manage tasks",
         formatter_class=RawTextRichHelpFormatter,
+        parents=[common_parser],
     )
     task_subparsers = task_parser.add_subparsers(
         dest="task_command", required=True, help="Task subcommand"
@@ -795,12 +803,14 @@ async def async_main():
         aliases=subcmd_aliases["today"],
         help="List tasks due today or overdue",
         formatter_class=RawTextRichHelpFormatter,
+        parents=[common_parser],
     )
     create_task_parser = task_subparsers.add_parser(
         "create",
         aliases=subcmd_aliases["create"],
         help="Create a new task",
         formatter_class=RawTextRichHelpFormatter,
+        parents=[common_parser],
     )
     create_task_parser.add_argument("content", help="Task content")
     create_task_parser.add_argument("--priority", type=int, default=None)
@@ -817,13 +827,17 @@ async def async_main():
         aliases=subcmd_aliases["update"],
         help="Update a task",
         formatter_class=RawTextRichHelpFormatter,
+        parents=[common_parser],
     )
     update_task_parser.add_argument("content", help="Existing task content to match")
     update_task_parser.add_argument("--new-content", help="New task content")
     update_task_parser.add_argument("--priority", type=int, default=None)
     update_task_parser.add_argument("--due", help="New due string")
     done_parser = task_subparsers.add_parser(
-        "done", help="Mark a task as done", formatter_class=RawTextRichHelpFormatter
+        "done",
+        help="Mark a task as done",
+        formatter_class=RawTextRichHelpFormatter,
+        parents=[common_parser],
     )
     done_parser.add_argument("content", help="Task content")
     delete_task_parser = task_subparsers.add_parser(
@@ -831,6 +845,7 @@ async def async_main():
         aliases=subcmd_aliases["delete"],
         help="Delete a task",
         formatter_class=RawTextRichHelpFormatter,
+        parents=[common_parser],
     )
     delete_task_parser.add_argument("content", help="Task content")
 
@@ -840,6 +855,7 @@ async def async_main():
         aliases=cmd_aliases["project"],
         help="Manage projects",
         formatter_class=RawTextRichHelpFormatter,
+        parents=[common_parser],
     )
     project_subparsers = project_parser.add_subparsers(
         dest="project_command", required=True, help="Project subcommand"
@@ -849,12 +865,14 @@ async def async_main():
         aliases=subcmd_aliases["list"],
         help="List projects",
         formatter_class=RawTextRichHelpFormatter,
+        parents=[common_parser],
     )
     proj_create = project_subparsers.add_parser(
         "create",
         aliases=subcmd_aliases["create"],
         help="Create a new project",
         formatter_class=RawTextRichHelpFormatter,
+        parents=[common_parser],
     )
     proj_create.add_argument("name", help="Project name")
     proj_update = project_subparsers.add_parser(
@@ -862,6 +880,7 @@ async def async_main():
         aliases=subcmd_aliases["update"],
         help="Update a project",
         formatter_class=RawTextRichHelpFormatter,
+        parents=[common_parser],
     )
     proj_update.add_argument("name", help="Existing project name to match")
     proj_update.add_argument("--new-name", required=True, help="New project name")
@@ -870,6 +889,7 @@ async def async_main():
         aliases=subcmd_aliases["delete"],
         help="Delete a project",
         formatter_class=RawTextRichHelpFormatter,
+        parents=[common_parser],
     )
     proj_delete.add_argument("name", help="Project name (or partial)")
 
@@ -879,6 +899,7 @@ async def async_main():
         aliases=cmd_aliases["section"],
         help="Manage sections",
         formatter_class=RawTextRichHelpFormatter,
+        parents=[common_parser],
     )
     section_subparsers = section_parser.add_subparsers(
         dest="section_command", required=True, help="Section subcommand"
@@ -888,29 +909,31 @@ async def async_main():
         aliases=subcmd_aliases["list"],
         help="List sections",
         formatter_class=RawTextRichHelpFormatter,
+        parents=[common_parser],
     )
+    # For section commands, we now use the global --section flag instead of a positional argument.
     sec_create = section_subparsers.add_parser(
         "create",
         aliases=subcmd_aliases["create"],
         help="Create a new section",
         formatter_class=RawTextRichHelpFormatter,
+        parents=[common_parser],
     )
-    sec_create.add_argument("section_name", help="Section name")
     sec_update = section_subparsers.add_parser(
         "update",
         aliases=subcmd_aliases["update"],
         help="Update a section",
         formatter_class=RawTextRichHelpFormatter,
+        parents=[common_parser],
     )
-    sec_update.add_argument("section_name", help="Existing section name to match")
     sec_update.add_argument("--new-name", required=True, help="New section name")
     sec_delete = section_subparsers.add_parser(
         "delete",
         aliases=subcmd_aliases["delete"],
         help="Delete a section",
         formatter_class=RawTextRichHelpFormatter,
+        parents=[common_parser],
     )
-    sec_delete.add_argument("section_name", help="Section name (or partial)")
 
     # Top-level command: label
     label_parser = subparsers.add_parser(
@@ -918,6 +941,7 @@ async def async_main():
         aliases=cmd_aliases["label"],
         help="Manage labels",
         formatter_class=RawTextRichHelpFormatter,
+        parents=[common_parser],
     )
     label_subparsers = label_parser.add_subparsers(
         dest="label_command", required=True, help="Label subcommand"
@@ -927,12 +951,14 @@ async def async_main():
         aliases=subcmd_aliases["list"],
         help="List labels",
         formatter_class=RawTextRichHelpFormatter,
+        parents=[common_parser],
     )
     lab_create = label_subparsers.add_parser(
         "create",
         aliases=subcmd_aliases["create"],
         help="Create a new label",
         formatter_class=RawTextRichHelpFormatter,
+        parents=[common_parser],
     )
     lab_create.add_argument("name", help="Label name")
     lab_update = label_subparsers.add_parser(
@@ -940,6 +966,7 @@ async def async_main():
         aliases=subcmd_aliases["update"],
         help="Update a label",
         formatter_class=RawTextRichHelpFormatter,
+        parents=[common_parser],
     )
     lab_update.add_argument("name", help="Existing label name to match")
     lab_update.add_argument("--new-name", required=True, help="New label name")
@@ -948,6 +975,7 @@ async def async_main():
         aliases=subcmd_aliases["delete"],
         help="Delete a label",
         formatter_class=RawTextRichHelpFormatter,
+        parents=[common_parser],
     )
     lab_delete.add_argument("name", help="Label name (or partial)")
 
@@ -1070,8 +1098,10 @@ async def async_main():
                 output_json=args.json,
             )
         elif args.section_command == "create":
-            if not args.section_name:
-                console.print("[red]Please provide a section name.[/red]")
+            if not args.section:
+                console.print(
+                    "[red]Please provide --section for creating a section[/red]"
+                )
                 sys.exit(1)
             if not args.project:
                 console.print(
@@ -1079,11 +1109,13 @@ async def async_main():
                 )
                 sys.exit(1)
             await create_section(
-                client, project_name=args.project, section_name=args.section_name
+                client, project_name=args.project, section_name=args.section
             )
         elif args.section_command == "update":
-            if not args.section_name:
-                console.print("[red]Please provide a section name to update.[/red]")
+            if not args.section:
+                console.print(
+                    "[red]Please provide --section for updating a section.[/red]"
+                )
                 sys.exit(1)
             if not args.project:
                 console.print(
@@ -1093,12 +1125,14 @@ async def async_main():
             await update_section(
                 client,
                 project_name=args.project,
-                section_name=args.section_name,
+                section_name=args.section,
                 new_name=args.new_name,
             )
         elif args.section_command == "delete":
-            if not args.section_name:
-                console.print("[red]Please provide a section name to delete.[/red]")
+            if not args.section:
+                console.print(
+                    "[red]Please provide --section for deleting a section.[/red]"
+                )
                 sys.exit(1)
             if not args.project:
                 console.print(
@@ -1106,7 +1140,7 @@ async def async_main():
                 )
                 sys.exit(1)
             await delete_section(
-                client, project_name=args.project, section_partial=args.section_name
+                client, project_name=args.project, section_partial=args.section
             )
 
     elif args.command == "label":
