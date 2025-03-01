@@ -45,7 +45,7 @@ def section_str(section_obj):
 
 
 def remove_emojis(text):
-    return regex.sub(r"\p{Emoji}", "", text) if text else text
+    return regex.sub(r"\p{Emoji}\s*", "", text) if text else text
 
 
 def maybe_strip_emojis(text):
