@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import sys
+from collections import namedtuple
 from datetime import date, datetime
 
 import regex
@@ -33,14 +34,20 @@ NA = "[italic dim]N/A[/italic dim]"
 # Utility and Formatting
 ###############################################################################
 def task_str(task_obj):
+    if type(task_obj) is dict:
+        task_obj = namedtuple("Struct", task_obj.keys())(*task_obj.values())
     return f"[{TASK_COLOR}]{task_obj.content}[/{TASK_COLOR}] (ID: [{ID_COLOR}]{task_obj.id}[/{ID_COLOR}])"
 
 
 def project_str(project_obj):
+    if type(project_obj) is dict:
+        project_obj = namedtuple("Struct", project_obj.keys())(*project_obj.values())
     return f"[{PROJECT_COLOR}]{project_obj.name}[/{PROJECT_COLOR}] (ID: [{ID_COLOR}]{project_obj.id}[/{ID_COLOR}])"
 
 
 def section_str(section_obj):
+    if type(section_obj) is dict:
+        section_obj = namedtuple("Struct", section_obj.keys())(*section_obj.values())
     return f"[{SECTION_COLOR}]{section_obj.name}[/{SECTION_COLOR}] (ID: [{ID_COLOR}]{section_obj.id}[/{ID_COLOR}])"
 
 
@@ -736,6 +743,19 @@ async def async_main():
     common_parser = argparse.ArgumentParser(add_help=False)
     common_parser.add_argument("-p", "--project", help="Project partial name match")
     common_parser.add_argument("-S", "--section", help="Section partial name match")
+    common_parser.add_argument(
+        "-d", "--debug", action="store_true", help="Enable debug logging"
+    )
+    common_parser.add_argument(
+        "-E",
+        "--strip-emojis",
+        action="store_true",
+        help="Remove emojis from displayed text.",
+    )
+    common_parser.add_argument(
+        "-i", "--ids", action="store_true", help="Show ID columns"
+    )
+    common_parser.add_argument("-j", "--json", action="store_true", help="Output JSON")
 
     # Main parser (global options can appear before the subcommand)
     parser = argparse.ArgumentParser(
@@ -744,10 +764,8 @@ async def async_main():
         description=("[bold cyan]CLI for Todoist[/bold cyan]"),
         parents=[common_parser],
     )
+
     # Global options
-    parser.add_argument(
-        "-d", "--debug", action="store_true", help="Enable debug logging"
-    )
     parser.add_argument(
         "-k",
         "--api-key",
@@ -755,14 +773,6 @@ async def async_main():
         help="Your Todoist API key",
         required=not bool(API_TOKEN),
     )
-    parser.add_argument(
-        "-E",
-        "--strip-emojis",
-        action="store_true",
-        help="Remove emojis from displayed text.",
-    )
-    parser.add_argument("-i", "--ids", action="store_true", help="Show ID columns")
-    parser.add_argument("-j", "--json", action="store_true", help="Output JSON")
     parser.add_argument(
         "-s", "--subtasks", action="store_true", help="Include subtasks"
     )
@@ -787,6 +797,7 @@ async def async_main():
         aliases=subcmd_aliases["list"],
         help="List tasks",
         formatter_class=RawTextRichHelpFormatter,
+        parents=[common_parser],
     )
     # Extra filtering options (these flags are cumulative)
     list_task_parser.add_argument(
@@ -919,6 +930,8 @@ async def async_main():
         formatter_class=RawTextRichHelpFormatter,
         parents=[common_parser],
     )
+    sec_create.add_argument("section", help="Section name")
+
     sec_update = section_subparsers.add_parser(
         "update",
         aliases=subcmd_aliases["update"],
@@ -926,7 +939,8 @@ async def async_main():
         formatter_class=RawTextRichHelpFormatter,
         parents=[common_parser],
     )
-    sec_update.add_argument("--new-name", required=True, help="New section name")
+    sec_update.add_argument("section", help="Section name")
+    sec_update.add_argument("new_section_name", help="New section name")
     sec_delete = section_subparsers.add_parser(
         "delete",
         aliases=subcmd_aliases["delete"],
@@ -934,6 +948,7 @@ async def async_main():
         formatter_class=RawTextRichHelpFormatter,
         parents=[common_parser],
     )
+    sec_delete.add_argument("section", help="Section name (or partial)")
 
     # Top-level command: label
     label_parser = subparsers.add_parser(
@@ -1126,7 +1141,7 @@ async def async_main():
                 client,
                 project_name=args.project,
                 section_name=args.section,
-                new_name=args.new_name,
+                new_name=args.new_section_name,
             )
         elif args.section_command == "delete":
             if not args.section:
