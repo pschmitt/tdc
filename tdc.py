@@ -308,6 +308,7 @@ async def create_task(
     reminder=None,
     project_name=None,
     section_name=None,
+    force=False,
 ):
     pid = None
     sid = None
@@ -324,13 +325,14 @@ async def create_task(
         if not sid:
             console.print(f"[red]No section found matching '{section_name}'[/red]")
             sys.exit(1)
-    tasks = await client.get_tasks(pid) if pid else await client.get_tasks()
-    for t in tasks:
-        if t.content.strip().lower() == content.strip().lower():
-            console.print(
-                f"[yellow]Task {task_str(t)} already exists, skipping.[/yellow]"
-            )
-            return
+    if not force:
+        tasks = await client.get_tasks(pid) if pid else await client.get_tasks()
+        for t in tasks:
+            if remove_emojis(t.content.strip().lower()) == remove_emojis(content.strip().lower()):
+                console.print(
+                    f"[yellow]Task {task_str(t)} already exists, skipping.[/yellow]"
+                )
+                return
     kwargs = {"content": content}
     if priority is not None:
         kwargs["priority"] = priority
@@ -804,6 +806,12 @@ async def async_main():
     create_task_parser.add_argument("--priority", type=int, default=None)
     create_task_parser.add_argument("--due", default=None)
     create_task_parser.add_argument("--reminder", default=None)
+    create_task_parser.add_argument(
+        "--force",
+        default=False,
+        action="store_true",
+        help="Allow creating tasks even though a task with the same content already exists",
+    )
     update_task_parser = task_subparsers.add_parser(
         "update",
         aliases=subcmd_aliases["update"],
@@ -1019,6 +1027,7 @@ async def async_main():
                 reminder=args.reminder,
                 project_name=args.project,
                 section_name=args.section,
+                force=args.force,
             )
         elif args.task_command == "update":
             await update_task(
