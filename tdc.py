@@ -735,6 +735,9 @@ async def async_main():
     )
     # Global options
     parser.add_argument(
+        "-d", "--debug", action="store_true", help="Enable debug logging"
+    )
+    parser.add_argument(
         "-k",
         "--api-key",
         "--api-token",
@@ -941,6 +944,10 @@ async def async_main():
     lab_delete.add_argument("name", help="Label name (or partial)")
 
     args = parser.parse_args()
+
+    if args.debug:
+        logging.basicConfig(level=logging.DEBUG)
+        LOGGER.debug("args: %s", args)
 
     # Normalize top-level command using our aliases.
     for canonical, aliases in cmd_aliases.items():
