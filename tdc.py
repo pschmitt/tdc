@@ -922,7 +922,6 @@ async def async_main():
         formatter_class=RawTextRichHelpFormatter,
         parents=[common_parser],
     )
-    # For section commands, we now use the global --section flag instead of a positional argument.
     sec_create = section_subparsers.add_parser(
         "create",
         aliases=subcmd_aliases["create"],
@@ -1105,7 +1104,7 @@ async def async_main():
                 console.print(
                     "[red]Please provide --project for listing sections[/red]"
                 )
-                sys.exit(1)
+                sys.exit(2)
             await list_sections(
                 client,
                 show_ids=args.ids,
@@ -1115,28 +1114,28 @@ async def async_main():
         elif args.section_command == "create":
             if not args.section:
                 console.print(
-                    "[red]Please provide --section for creating a section[/red]"
+                    "[red]Please provide section name for creating a section[/red]"
                 )
-                sys.exit(1)
+                sys.exit(2)
             if not args.project:
                 console.print(
                     "[red]Please provide --project for creating a section[/red]"
                 )
-                sys.exit(1)
+                sys.exit(2)
             await create_section(
                 client, project_name=args.project, section_name=args.section
             )
         elif args.section_command == "update":
             if not args.section:
                 console.print(
-                    "[red]Please provide --section for updating a section.[/red]"
+                    "[red]Please provide a section for updating a section.[/red]"
                 )
-                sys.exit(1)
+                sys.exit(2)
             if not args.project:
                 console.print(
                     "[red]Please provide --project for updating a section[/red]"
                 )
-                sys.exit(1)
+                sys.exit(2)
             await update_section(
                 client,
                 project_name=args.project,
@@ -1146,14 +1145,14 @@ async def async_main():
         elif args.section_command == "delete":
             if not args.section:
                 console.print(
-                    "[red]Please provide --section for deleting a section.[/red]"
+                    "[red]Please provide a section for deleting a section.[/red]"
                 )
-                sys.exit(1)
+                sys.exit(2)
             if not args.project:
                 console.print(
                     "[red]Please provide --project for deleting a section[/red]"
                 )
-                sys.exit(1)
+                sys.exit(2)
             await delete_section(
                 client, project_name=args.project, section_partial=args.section
             )
