@@ -70,6 +70,50 @@ def matches_task_lookup(task, identifier, identifier_lower, lookup_is_id):
     return str(task_content).strip().lower() == identifier_lower
 
 
+async def resolve_task_identifier(client, identifier, project_name=None):
+    pid = None
+    if project_name:
+        pid = await find_project_id_partial(client, project_name)
+        if not pid:
+            console.print(f"[red]No project found matching '{project_name}'.[/red]")
+            sys.exit(1)
+
+    lookup_is_id = identifier.isdigit()
+    identifier_lower = identifier.lower()
+
+    scoped_tasks = await client.get_tasks(pid) if pid else await client.get_tasks()
+    for task in scoped_tasks:
+        if matches_task_lookup(task, identifier, identifier_lower, lookup_is_id):
+            return task, pid, lookup_is_id
+
+    if pid:
+        all_tasks = await client.get_tasks()
+        for task in all_tasks:
+            if matches_task_lookup(task, identifier, identifier_lower, lookup_is_id):
+                projects = await client.get_projects()
+                project_lookup = {p.id: p for p in projects}
+                expected_project = project_lookup.get(pid)
+                actual_project = project_lookup.get(getattr(task, "project_id", None))
+                expected_desc = (
+                    project_str(expected_project)
+                    if expected_project
+                    else f"project ID {pid}"
+                )
+                actual_pid = getattr(task, "project_id", None)
+                actual_desc = (
+                    project_str(actual_project)
+                    if actual_project
+                    else f"project ID {actual_pid}"
+                )
+                console.print(
+                    "[red]Found matching task "
+                    f"{task_str(task)} but it belongs to {actual_desc} instead of {expected_desc}.[/red]"
+                )
+                sys.exit(1)
+
+    return None, pid, lookup_is_id
+
+
 ###############################################################################
 # Caching and Async Client Wrapper
 ###############################################################################
@@ -391,20 +435,9 @@ async def update_task(
     if not identifier:
         console.print("[red]Task content or ID is required.[/red]")
         sys.exit(2)
-    pid = None
-    if project_name:
-        pid = await find_project_id_partial(client, project_name)
-        if not pid:
-            console.print(f"[red]No project found matching '{project_name}'.[/red]")
-            sys.exit(1)
-    tasks = await client.get_tasks(pid) if pid else await client.get_tasks()
-    target = None
-    lookup_is_id = identifier.isdigit()
-    identifier_lower = identifier.lower()
-    for t in tasks:
-        if matches_task_lookup(t, identifier, identifier_lower, lookup_is_id):
-            target = t
-            break
+    target, pid, lookup_is_id = await resolve_task_identifier(
+        client, identifier, project_name=project_name
+    )
     if not target:
         if lookup_is_id:
             console.print(
@@ -427,7 +460,8 @@ async def update_task(
             client.api.update_task, target.id, **update_kwargs
         )
         console.print(f"[green]Updated task: {task_str(updated)}[/green]")
-        client.invalidate_tasks(pid)
+        invalidate_pid = pid if pid is not None else getattr(target, "project_id", None)
+        client.invalidate_tasks(invalidate_pid)
     except Exception as e:
         console.print(f"[red]Failed to update task '{identifier}': {e}[/red]")
         sys.exit(1)
@@ -438,25 +472,21 @@ async def mark_task_done(client, content=None, project_name=None):
     if not identifier:
         console.print("[red]Task content or ID is required.[/red]")
         sys.exit(2)
-    pid = None
-    if project_name:
-        pid = await find_project_id_partial(client, project_name)
-        if not pid:
-            console.print(f"[red]No project found matching '{project_name}'.[/red]")
+    target, pid, lookup_is_id = await resolve_task_identifier(
+        client, identifier, project_name=project_name
+    )
+    if target:
+        try:
+            await asyncio.to_thread(client.api.close_task, target.id)
+            console.print(f"[green]Marked done: {task_str(target)}[/green]")
+            invalidate_pid = (
+                pid if pid is not None else getattr(target, "project_id", None)
+            )
+            client.invalidate_tasks(invalidate_pid)
+            return
+        except Exception as e:
+            console.print(f"[red]Failed to mark done: {task_str(target)}: {e}[/red]")
             sys.exit(1)
-    tasks = await client.get_tasks(pid) if pid else await client.get_tasks()
-    lookup_is_id = identifier.isdigit()
-    identifier_lower = identifier.lower()
-    for t in tasks:
-        if matches_task_lookup(t, identifier, identifier_lower, lookup_is_id):
-            try:
-                await asyncio.to_thread(client.api.close_task, t.id)
-                console.print(f"[green]Marked done: {task_str(t)}[/green]")
-                client.invalidate_tasks(pid)
-                return
-            except Exception as e:
-                console.print(f"[red]Failed to mark done: {task_str(t)}: {e}[/red]")
-                sys.exit(1)
     if lookup_is_id:
         console.print(f"[yellow]No matching task found for ID '{identifier}'.[/yellow]")
     else:
@@ -468,25 +498,21 @@ async def delete_task(client, content=None, project_name=None):
     if not identifier:
         console.print("[red]Task content or ID is required.[/red]")
         sys.exit(2)
-    pid = None
-    if project_name:
-        pid = await find_project_id_partial(client, project_name)
-        if not pid:
-            console.print(f"[red]No project found matching '{project_name}'.[/red]")
+    target, pid, lookup_is_id = await resolve_task_identifier(
+        client, identifier, project_name=project_name
+    )
+    if target:
+        try:
+            await asyncio.to_thread(client.api.delete_task, target.id)
+            console.print(f"[green]Deleted {task_str(target)}[/green]")
+            invalidate_pid = (
+                pid if pid is not None else getattr(target, "project_id", None)
+            )
+            client.invalidate_tasks(invalidate_pid)
+            return
+        except Exception as e:
+            console.print(f"[red]Failed to delete {task_str(target)}: {e}[/red]")
             sys.exit(1)
-    tasks = await client.get_tasks(pid) if pid else await client.get_tasks()
-    lookup_is_id = identifier.isdigit()
-    identifier_lower = identifier.lower()
-    for t in tasks:
-        if matches_task_lookup(t, identifier, identifier_lower, lookup_is_id):
-            try:
-                await asyncio.to_thread(client.api.delete_task, t.id)
-                console.print(f"[green]Deleted {task_str(t)}[/green]")
-                client.invalidate_tasks(pid)
-                return
-            except Exception as e:
-                console.print(f"[red]Failed to delete {task_str(t)}: {e}[/red]")
-                sys.exit(1)
     if lookup_is_id:
         console.print(f"[yellow]No task matching ID '{identifier}'.[/yellow]")
     else:
@@ -781,21 +807,46 @@ async def async_main():
 
     # Create a common parent parser for --project and --section options.
     common_parser = argparse.ArgumentParser(add_help=False)
-    common_parser.add_argument("-p", "--project", help="Project partial name match")
-    common_parser.add_argument("-S", "--section", help="Section partial name match")
     common_parser.add_argument(
-        "-d", "--debug", action="store_true", help="Enable debug logging"
+        "-p",
+        "--project",
+        help="Project partial name match",
+        default=argparse.SUPPRESS,
+    )
+    common_parser.add_argument(
+        "-S",
+        "--section",
+        help="Section partial name match",
+        default=argparse.SUPPRESS,
+    )
+    common_parser.add_argument(
+        "-d",
+        "--debug",
+        action="store_true",
+        help="Enable debug logging",
+        default=argparse.SUPPRESS,
     )
     common_parser.add_argument(
         "-E",
         "--strip-emojis",
         action="store_true",
         help="Remove emojis from displayed text.",
+        default=argparse.SUPPRESS,
     )
     common_parser.add_argument(
-        "-i", "--ids", action="store_true", help="Show ID columns"
+        "-i",
+        "--ids",
+        action="store_true",
+        help="Show ID columns",
+        default=argparse.SUPPRESS,
     )
-    common_parser.add_argument("-j", "--json", action="store_true", help="Output JSON")
+    common_parser.add_argument(
+        "-j",
+        "--json",
+        action="store_true",
+        help="Output JSON",
+        default=argparse.SUPPRESS,
+    )
 
     # Main parser (global options can appear before the subcommand)
     parser = argparse.ArgumentParser(
@@ -1046,6 +1097,17 @@ async def async_main():
     lab_delete.add_argument("name", help="Label name (or partial)")
 
     args = parser.parse_args()
+
+    for attr, default in (
+        ("project", None),
+        ("section", None),
+        ("debug", False),
+        ("strip_emojis", False),
+        ("ids", False),
+        ("json", False),
+    ):
+        if not hasattr(args, attr):
+            setattr(args, attr, default)
 
     if args.debug:
         logging.basicConfig(level=logging.DEBUG)
