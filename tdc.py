@@ -88,24 +88,68 @@ def matches_task_lookup(task, identifier, identifier_lower, lookup_is_id):
     return str(task_content).strip().lower() == identifier_lower
 
 
-async def resolve_task_identifier(client, identifier, project_name=None):
+def compile_content_pattern(pattern):
+    if not pattern:
+        return None
+    try:
+        return regex.compile(pattern, regex.IGNORECASE)
+    except regex.error as exc:
+        console.print(
+            f"[red]Invalid content filter '{pattern}': {exc}[/red]"
+        )
+        sys.exit(1)
+
+
+def task_matches_pattern(task, compiled_pattern):
+    if not compiled_pattern:
+        return True
+    task_content = getattr(task, "content", "") or ""
+    return bool(compiled_pattern.search(task_content))
+
+
+async def resolve_task_identifier(
+    client,
+    identifier,
+    project_name=None,
+    todoist_filter=None,
+    content_pattern=None,
+):
     pid = None
     if project_name:
         pid = await find_project_id_partial(client, project_name)
         if not pid:
             console.print(f"[red]No project found matching '{project_name}'.[/red]")
             sys.exit(1)
+        projects = await client.get_projects()
+        project_lookup = {p.id: p for p in projects}
+        project_obj = project_lookup.get(pid)
+        if project_obj:
+            console.print(
+                f"[cyan]Operating in project {project_str(project_obj)}[/cyan]"
+            )
+        else:
+            console.print(f"[cyan]Operating in project ID {pid}[/cyan]")
 
     lookup_is_id = identifier.isdigit()
     identifier_lower = identifier.lower()
 
-    scoped_tasks = await client.get_tasks(pid) if pid else await client.get_tasks()
+    compiled_pattern = compile_content_pattern(content_pattern)
+
+    scoped_tasks = await client.get_tasks(project_id=pid, filter_str=todoist_filter)
+    if compiled_pattern:
+        scoped_tasks = [
+            task for task in scoped_tasks if task_matches_pattern(task, compiled_pattern)
+        ]
     for task in scoped_tasks:
         if matches_task_lookup(task, identifier, identifier_lower, lookup_is_id):
             return task, pid, lookup_is_id
 
     if pid:
-        all_tasks = await client.get_tasks()
+        all_tasks = await client.get_tasks(filter_str=todoist_filter)
+        if compiled_pattern:
+            all_tasks = [
+                task for task in all_tasks if task_matches_pattern(task, compiled_pattern)
+            ]
         for task in all_tasks:
             if matches_task_lookup(task, identifier, identifier_lower, lookup_is_id):
                 projects = await client.get_projects()
@@ -154,21 +198,30 @@ class TodoistClient:
             )
         return self._sections[project_id]
 
-    async def get_tasks(self, project_id=None):
-        key = project_id if project_id is not None else "all"
+    async def get_tasks(self, project_id=None, filter_str=None):
+        scope = project_id if project_id is not None else "all"
+        key = (scope, filter_str)
         if key not in self._tasks:
-            if project_id:
-                self._tasks[key] = await asyncio.to_thread(
-                    self.api.get_tasks, project_id=project_id
-                )
-            else:
-                self._tasks[key] = await asyncio.to_thread(self.api.get_tasks)
+            kwargs = {}
+            if project_id is not None:
+                kwargs["project_id"] = project_id
+            if filter_str:
+                kwargs["filter"] = filter_str
+            self._tasks[key] = await asyncio.to_thread(
+                self.api.get_tasks, **kwargs
+            )
         return self._tasks[key]
 
     def invalidate_tasks(self, project_id=None):
-        if project_id:
-            self._tasks.pop(project_id, None)
-        self._tasks.pop("all", None)
+        if project_id is None:
+            self._tasks.clear()
+            return
+        keys_to_remove = []
+        for scope, filter_key in self._tasks:
+            if scope == project_id or scope == "all":
+                keys_to_remove.append((scope, filter_key))
+        for key in keys_to_remove:
+            self._tasks.pop(key, None)
 
     def invalidate_projects(self):
         self._projects = None
@@ -215,16 +268,32 @@ async def list_tasks(
     filter_today=False,
     filter_overdue=False,
     filter_recurring=False,
+    todoist_filter=None,
+    content_pattern=None,
 ):
-    # Get tasks for a project (or all)
+    pid = None
     if project_name:
         pid = await find_project_id_partial(client, project_name)
         if not pid:
             console.print(f"[red]No project found matching '{project_name}'.[/red]")
             sys.exit(1)
-        tasks = await client.get_tasks(pid)
+
+    projects = await client.get_projects()
+    projects_dict = {p.id: p for p in projects}
+
+    if pid is not None:
+        project_obj = projects_dict.get(pid)
+        if project_obj:
+            console.print(f"[cyan]Operating in project {project_str(project_obj)}[/cyan]")
+        else:
+            console.print(f"[cyan]Operating in project ID {pid}[/cyan]")
     else:
-        tasks = await client.get_tasks()
+        console.print("[cyan]Operating across all projects[/cyan]")
+
+    # Get tasks for a project (or all)
+    compiled_pattern = compile_content_pattern(content_pattern)
+
+    tasks = await client.get_tasks(project_id=pid, filter_str=todoist_filter)
 
     if not show_subtasks:
         tasks = [t for t in tasks if t.parent_id is None]
@@ -234,10 +303,6 @@ async def list_tasks(
     if section_name:
         if not project_name:
             console.print("[red]--section requires --project.[/red]")
-            sys.exit(1)
-        pid = await find_project_id_partial(client, project_name)
-        if not pid:
-            console.print(f"[red]No project found matching '{project_name}'.[/red]")
             sys.exit(1)
         sid = await find_section_id_partial(client, pid, section_name)
         if not sid:
@@ -257,6 +322,9 @@ async def list_tasks(
                 secs = await client.get_sections(upid)
                 for s in secs:
                     section_mapping[s.id] = s
+
+    if compiled_pattern:
+        tasks = [t for t in tasks if task_matches_pattern(t, compiled_pattern)]
 
     # Apply extra filters (union if more than one is provided)
     today_date = date.today()
@@ -288,8 +356,6 @@ async def list_tasks(
     if filter_recurring:
         tasks = [t for t in tasks if t.due and getattr(t.due, "is_recurring", False)]
 
-    projects = await client.get_projects()
-    projects_dict = {p.id: p for p in projects}
     task_dict = {t.id: t for t in tasks}
 
     tasks.sort(
@@ -528,13 +594,23 @@ async def mark_task_done(client, content=None, project_name=None):
         console.print(f"[yellow]No matching task found for '{identifier}'.[/yellow]")
 
 
-async def delete_task(client, content=None, project_name=None):
+async def delete_task(
+    client,
+    content=None,
+    project_name=None,
+    todoist_filter=None,
+    content_pattern=None,
+):
     identifier = content.strip() if content else None
     if not identifier:
         console.print("[red]Task content or ID is required.[/red]")
         sys.exit(2)
     target, pid, lookup_is_id = await resolve_task_identifier(
-        client, identifier, project_name=project_name
+        client,
+        identifier,
+        project_name=project_name,
+        todoist_filter=todoist_filter,
+        content_pattern=content_pattern,
     )
     if target:
         try:
@@ -935,6 +1011,16 @@ async def async_main():
     list_task_parser.add_argument(
         "--recurring", action="store_true", help="Limit to recurring tasks"
     )
+    list_task_parser.add_argument(
+        "--filter",
+        dest="todoist_filter",
+        help="Todoist filter query to apply when fetching tasks",
+    )
+    list_task_parser.add_argument(
+        "content_pattern",
+        nargs="?",
+        help="Regex (case-insensitive) to match task content",
+    )
     task_subparsers.add_parser(
         "today",
         aliases=subcmd_aliases["today"],
@@ -996,6 +1082,16 @@ async def async_main():
         "content",
         nargs="?",
         help="Task content or ID to delete (case-insensitive for content)",
+    )
+    delete_task_parser.add_argument(
+        "--filter",
+        dest="todoist_filter",
+        help="Todoist filter query to apply when resolving the task",
+    )
+    delete_task_parser.add_argument(
+        "content_pattern",
+        nargs="?",
+        help="Regex (case-insensitive) to match task content when resolving",
     )
 
     # Top-level command: project
@@ -1140,6 +1236,8 @@ async def async_main():
         ("strip_emojis", False),
         ("ids", False),
         ("json", False),
+        ("todoist_filter", None),
+        ("content_pattern", None),
     ):
         if not hasattr(args, attr):
             setattr(args, attr, default)
@@ -1196,6 +1294,8 @@ async def async_main():
                 filter_today=args.today,
                 filter_overdue=args.overdue,
                 filter_recurring=args.recurring,
+                todoist_filter=args.todoist_filter,
+                content_pattern=args.content_pattern,
             )
         if args.task_command == "today":
             # "today" subcommand now shows tasks due today or overdue (union)
@@ -1208,6 +1308,8 @@ async def async_main():
                 output_json=args.json,
                 filter_today=True,
                 filter_overdue=True,
+                todoist_filter=args.todoist_filter,
+                content_pattern=args.content_pattern,
             )
         elif args.task_command == "create":
             await create_task(
@@ -1241,6 +1343,8 @@ async def async_main():
                 client,
                 content=args.content,
                 project_name=args.project,
+                todoist_filter=args.todoist_filter,
+                content_pattern=args.content_pattern,
             )
 
     elif args.command == "project":

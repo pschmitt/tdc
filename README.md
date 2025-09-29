@@ -57,6 +57,18 @@ tdc --api-key <YOUR_API_KEY> task list
   ```
   tdc --api-key <YOUR_API_KEY> task list --subtasks
   ```
+- **Apply a Todoist filter (optionally alongside a project)**:
+  ```
+  tdc --api-key <YOUR_API_KEY> task list --project "Work" --filter "assigned to: me"
+  ```
+- **Filter by task title using a simple regex (case-insensitive)**:
+  ```
+  tdc --api-key <YOUR_API_KEY> task list "test"
+  ```
+- **Combine Todoist filters with the simple regex filter**:
+  ```
+  tdc --api-key <YOUR_API_KEY> task list --filter "assigned to: me" test
+  ```
 
 ### Create a Task
 
@@ -79,6 +91,25 @@ tdc --api-key <YOUR_API_KEY> task done "Brush teeth"
 
 ```
 tdc --api-key <YOUR_API_KEY> task done "Brush teeth" --project "Daily Routines"
+```
+
+### Delete a Task
+
+```
+tdc --api-key <YOUR_API_KEY> task delete "Brush teeth"
+```
+
+(Optional) Combine with a project and Todoist filter for extra safety:
+
+```
+tdc --api-key <YOUR_API_KEY> task delete "Brush" --project "Daily Routines" --filter "assigned to: me"
+```
+
+(Optional) Add a simple regex (case-insensitive) after the task identifier to limit
+candidate matches when deleting:
+
+```
+tdc --api-key <YOUR_API_KEY> task delete "Brush" nightly
 ```
 
 ### List / Create Projects
