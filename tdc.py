@@ -406,7 +406,24 @@ async def create_task(
         kwargs["section_id"] = sid
     try:
         new_task = await asyncio.to_thread(client.api.add_task, **kwargs)
-        console.print(f"[green]Created {task_str(new_task)}[/green]")
+        project_note = ""
+        project_id = getattr(new_task, "project_id", None)
+        if project_id:
+            project_note = (
+                f" in project ID [{ID_COLOR}]{project_id}[/{ID_COLOR}]"
+            )
+            try:
+                projects = await client.get_projects()
+            except Exception as exc:
+                LOGGER.debug(
+                    "Unable to fetch projects when reporting task creation: %s", exc
+                )
+            else:
+                for project in projects:
+                    if project.id == project_id:
+                        project_note = f" in {project_str(project)}"
+                        break
+        console.print(f"[green]Created {task_str(new_task)}{project_note}[/green]")
         client.invalidate_tasks(pid)
         if reminder:
             try:
