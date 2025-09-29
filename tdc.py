@@ -61,6 +61,15 @@ def maybe_strip_emojis(text):
     return text
 
 
+def matches_task_lookup(task, identifier, identifier_lower, lookup_is_id):
+    if lookup_is_id and str(task.id) == identifier:
+        return True
+    task_content = getattr(task, "content", None)
+    if task_content is None:
+        return False
+    return str(task_content).strip().lower() == identifier_lower
+
+
 ###############################################################################
 # Caching and Async Client Wrapper
 ###############################################################################
@@ -370,7 +379,7 @@ async def create_task(
 
 async def update_task(
     client,
-    content,
+    content=None,
     new_content=None,
     priority=None,
     due=None,
@@ -378,6 +387,10 @@ async def update_task(
     project_name=None,
     section_name=None,
 ):
+    identifier = content.strip() if content else None
+    if not identifier:
+        console.print("[red]Task content or ID is required.[/red]")
+        sys.exit(2)
     pid = None
     if project_name:
         pid = await find_project_id_partial(client, project_name)
@@ -386,12 +399,21 @@ async def update_task(
             sys.exit(1)
     tasks = await client.get_tasks(pid) if pid else await client.get_tasks()
     target = None
+    lookup_is_id = identifier.isdigit()
+    identifier_lower = identifier.lower()
     for t in tasks:
-        if t.content.strip().lower() == content.strip().lower():
+        if matches_task_lookup(t, identifier, identifier_lower, lookup_is_id):
             target = t
             break
     if not target:
-        console.print(f"[yellow]No matching task found for '{content}'.[/yellow]")
+        if lookup_is_id:
+            console.print(
+                f"[yellow]No matching task found for ID '{identifier}'.[/yellow]"
+            )
+        else:
+            console.print(
+                f"[yellow]No matching task found for '{identifier}'.[/yellow]"
+            )
         return
     update_kwargs = {}
     if new_content:
@@ -407,11 +429,15 @@ async def update_task(
         console.print(f"[green]Updated task: {task_str(updated)}[/green]")
         client.invalidate_tasks(pid)
     except Exception as e:
-        console.print(f"[red]Failed to update task '{content}': {e}[/red]")
+        console.print(f"[red]Failed to update task '{identifier}': {e}[/red]")
         sys.exit(1)
 
 
-async def mark_task_done(client, content, project_name=None):
+async def mark_task_done(client, content=None, project_name=None):
+    identifier = content.strip() if content else None
+    if not identifier:
+        console.print("[red]Task content or ID is required.[/red]")
+        sys.exit(2)
     pid = None
     if project_name:
         pid = await find_project_id_partial(client, project_name)
@@ -419,8 +445,10 @@ async def mark_task_done(client, content, project_name=None):
             console.print(f"[red]No project found matching '{project_name}'.[/red]")
             sys.exit(1)
     tasks = await client.get_tasks(pid) if pid else await client.get_tasks()
+    lookup_is_id = identifier.isdigit()
+    identifier_lower = identifier.lower()
     for t in tasks:
-        if t.content.strip().lower() == content.strip().lower():
+        if matches_task_lookup(t, identifier, identifier_lower, lookup_is_id):
             try:
                 await asyncio.to_thread(client.api.close_task, t.id)
                 console.print(f"[green]Marked done: {task_str(t)}[/green]")
@@ -429,10 +457,17 @@ async def mark_task_done(client, content, project_name=None):
             except Exception as e:
                 console.print(f"[red]Failed to mark done: {task_str(t)}: {e}[/red]")
                 sys.exit(1)
-    console.print(f"[yellow]No matching task found for '{content}'.[/yellow]")
+    if lookup_is_id:
+        console.print(f"[yellow]No matching task found for ID '{identifier}'.[/yellow]")
+    else:
+        console.print(f"[yellow]No matching task found for '{identifier}'.[/yellow]")
 
 
-async def delete_task(client, content, project_name=None):
+async def delete_task(client, content=None, project_name=None):
+    identifier = content.strip() if content else None
+    if not identifier:
+        console.print("[red]Task content or ID is required.[/red]")
+        sys.exit(2)
     pid = None
     if project_name:
         pid = await find_project_id_partial(client, project_name)
@@ -440,8 +475,10 @@ async def delete_task(client, content, project_name=None):
             console.print(f"[red]No project found matching '{project_name}'.[/red]")
             sys.exit(1)
     tasks = await client.get_tasks(pid) if pid else await client.get_tasks()
+    lookup_is_id = identifier.isdigit()
+    identifier_lower = identifier.lower()
     for t in tasks:
-        if t.content.strip().lower() == content.strip().lower():
+        if matches_task_lookup(t, identifier, identifier_lower, lookup_is_id):
             try:
                 await asyncio.to_thread(client.api.delete_task, t.id)
                 console.print(f"[green]Deleted {task_str(t)}[/green]")
@@ -450,7 +487,10 @@ async def delete_task(client, content, project_name=None):
             except Exception as e:
                 console.print(f"[red]Failed to delete {task_str(t)}: {e}[/red]")
                 sys.exit(1)
-    console.print(f"[yellow]No task matching '{content}'.[/yellow]")
+    if lookup_is_id:
+        console.print(f"[yellow]No task matching ID '{identifier}'.[/yellow]")
+    else:
+        console.print(f"[yellow]No task matching '{identifier}'.[/yellow]")
 
 
 ###############################################################################
@@ -840,7 +880,11 @@ async def async_main():
         formatter_class=RawTextRichHelpFormatter,
         parents=[common_parser],
     )
-    update_task_parser.add_argument("content", help="Existing task content to match")
+    update_task_parser.add_argument(
+        "content",
+        nargs="?",
+        help="Existing task content or ID to match (case-insensitive for content)",
+    )
     update_task_parser.add_argument("--new-content", help="New task content")
     update_task_parser.add_argument("--priority", type=int, default=None)
     update_task_parser.add_argument("--due", help="New due string")
@@ -850,7 +894,11 @@ async def async_main():
         formatter_class=RawTextRichHelpFormatter,
         parents=[common_parser],
     )
-    done_parser.add_argument("content", help="Task content")
+    done_parser.add_argument(
+        "content",
+        nargs="?",
+        help="Task content or ID to mark done (case-insensitive for content)",
+    )
     delete_task_parser = task_subparsers.add_parser(
         "delete",
         aliases=subcmd_aliases["delete"],
@@ -858,7 +906,11 @@ async def async_main():
         formatter_class=RawTextRichHelpFormatter,
         parents=[common_parser],
     )
-    delete_task_parser.add_argument("content", help="Task content")
+    delete_task_parser.add_argument(
+        "content",
+        nargs="?",
+        help="Task content or ID to delete (case-insensitive for content)",
+    )
 
     # Top-level command: project
     project_parser = subparsers.add_parser(
@@ -1083,10 +1135,16 @@ async def async_main():
             )
         elif args.task_command == "done":
             await mark_task_done(
-                client, content=args.content, project_name=args.project
+                client,
+                content=args.content,
+                project_name=args.project,
             )
         elif args.task_command == "delete":
-            await delete_task(client, content=args.content, project_name=args.project)
+            await delete_task(
+                client,
+                content=args.content,
+                project_name=args.project,
+            )
 
     elif args.command == "project":
         if args.project_command == "list":
