@@ -624,6 +624,33 @@ async def delete_task(
         except Exception as e:
             console.print(f"[red]Failed to delete {task_str(target)}: {e}[/red]")
             sys.exit(1)
+    pattern_source = None
+    if content_pattern and content_pattern.strip():
+        pattern_source = content_pattern.strip()
+    elif identifier and not lookup_is_id:
+        pattern_source = identifier
+
+    if pattern_source:
+        compiled = compile_content_pattern(pattern_source)
+        scoped_tasks = await client.get_tasks(project_id=pid, filter_str=todoist_filter)
+        matches = [t for t in scoped_tasks if task_matches_pattern(t, compiled)]
+        if not matches:
+            console.print(
+                f"[yellow]No task matching pattern '{pattern_source}'.[/yellow]"
+            )
+            return
+        for match in matches:
+            try:
+                await asyncio.to_thread(client.api.delete_task, match.id)
+                console.print(f"[green]Deleted {task_str(match)}[/green]")
+            except Exception as e:
+                console.print(
+                    f"[red]Failed to delete {task_str(match)}: {e}[/red]"
+                )
+                sys.exit(1)
+        client.invalidate_tasks(pid)
+        return
+
     if lookup_is_id:
         console.print(f"[yellow]No task matching ID '{identifier}'.[/yellow]")
     else:
