@@ -51,8 +51,26 @@ def section_str(section_obj):
     return f"[{SECTION_COLOR}]{section_obj.name}[/{SECTION_COLOR}] (ID: [{ID_COLOR}]{section_obj.id}[/{ID_COLOR}])"
 
 
+GRAPHEME_CLUSTER_REGEX = regex.compile(r"\X", regex.UNICODE)
+EMOJI_REGEX = regex.compile(r"\p{Emoji}")
+
+
 def remove_emojis(text):
-    return regex.sub(r"\p{Emoji}\s*", "", text) if text else text
+    if not text:
+        return text
+
+    clusters = GRAPHEME_CLUSTER_REGEX.findall(text)
+    filtered = []
+
+    for cluster in clusters:
+        if cluster.isascii():
+            filtered.append(cluster)
+            continue
+        if EMOJI_REGEX.search(cluster):
+            continue
+        filtered.append(cluster)
+
+    return "".join(filtered)
 
 
 def maybe_strip_emojis(text):
