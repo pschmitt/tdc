@@ -79,6 +79,28 @@ def maybe_strip_emojis(text):
     return text
 
 
+def serialize_todoist_object(obj):
+    if obj is None:
+        return None
+    if isinstance(obj, (str, int, float, bool)):
+        return obj
+    if isinstance(obj, (datetime, date)):
+        return obj.isoformat()
+    if isinstance(obj, dict):
+        return {key: serialize_todoist_object(value) for key, value in obj.items()}
+    if isinstance(obj, (list, tuple, set)):
+        return [serialize_todoist_object(item) for item in obj]
+    if hasattr(obj, "to_dict"):
+        return serialize_todoist_object(obj.to_dict())
+    if hasattr(obj, "__dict__"):
+        return {
+            key: serialize_todoist_object(value)
+            for key, value in vars(obj).items()
+            if not key.startswith("_")
+        }
+    return str(obj)
+
+
 def matches_task_lookup(task, identifier, identifier_lower, lookup_is_id):
     if lookup_is_id and str(task.id) == identifier:
         return True
@@ -94,9 +116,7 @@ def compile_content_pattern(pattern):
     try:
         return regex.compile(pattern, regex.IGNORECASE)
     except regex.error as exc:
-        console.print(
-            f"[red]Invalid content filter '{pattern}': {exc}[/red]"
-        )
+        console.print(f"[red]Invalid content filter '{pattern}': {exc}[/red]")
         sys.exit(1)
 
 
@@ -138,7 +158,9 @@ async def resolve_task_identifier(
     scoped_tasks = await client.get_tasks(project_id=pid, filter_str=todoist_filter)
     if compiled_pattern:
         scoped_tasks = [
-            task for task in scoped_tasks if task_matches_pattern(task, compiled_pattern)
+            task
+            for task in scoped_tasks
+            if task_matches_pattern(task, compiled_pattern)
         ]
     for task in scoped_tasks:
         if matches_task_lookup(task, identifier, identifier_lower, lookup_is_id):
@@ -148,7 +170,9 @@ async def resolve_task_identifier(
         all_tasks = await client.get_tasks(filter_str=todoist_filter)
         if compiled_pattern:
             all_tasks = [
-                task for task in all_tasks if task_matches_pattern(task, compiled_pattern)
+                task
+                for task in all_tasks
+                if task_matches_pattern(task, compiled_pattern)
             ]
         for task in all_tasks:
             if matches_task_lookup(task, identifier, identifier_lower, lookup_is_id):
@@ -207,9 +231,7 @@ class TodoistClient:
                 kwargs["project_id"] = project_id
             if filter_str:
                 kwargs["filter"] = filter_str
-            self._tasks[key] = await asyncio.to_thread(
-                self.api.get_tasks, **kwargs
-            )
+            self._tasks[key] = await asyncio.to_thread(self.api.get_tasks, **kwargs)
         return self._tasks[key]
 
     def invalidate_tasks(self, project_id=None):
@@ -284,7 +306,9 @@ async def list_tasks(
     if pid is not None:
         project_obj = projects_dict.get(pid)
         if project_obj:
-            console.print(f"[cyan]Operating in project {project_str(project_obj)}[/cyan]")
+            console.print(
+                f"[cyan]Operating in project {project_str(project_obj)}[/cyan]"
+            )
         else:
             console.print(f"[cyan]Operating in project ID {pid}[/cyan]")
     else:
@@ -493,9 +517,7 @@ async def create_task(
         project_note = ""
         project_id = getattr(new_task, "project_id", None)
         if project_id:
-            project_note = (
-                f" in project ID [{ID_COLOR}]{project_id}[/{ID_COLOR}]"
-            )
+            project_note = f" in project ID [{ID_COLOR}]{project_id}[/{ID_COLOR}]"
             try:
                 projects = await client.get_projects()
             except Exception as exc:
@@ -644,9 +666,7 @@ async def delete_task(
                 await asyncio.to_thread(client.api.delete_task, match.id)
                 console.print(f"[green]Deleted {task_str(match)}[/green]")
             except Exception as e:
-                console.print(
-                    f"[red]Failed to delete {task_str(match)}: {e}[/red]"
-                )
+                console.print(f"[red]Failed to delete {task_str(match)}: {e}[/red]")
                 sys.exit(1)
         client.invalidate_tasks(pid)
         return
@@ -923,6 +943,103 @@ async def delete_label(client, name_partial):
 
 
 ###############################################################################
+# Dump Command
+###############################################################################
+async def dump_all_data(client, output_path=None, indent=None):
+    try:
+        projects = await client.get_projects()
+        tasks = await client.get_tasks()
+        sections = []
+        seen_section_ids = set()
+        for project in projects:
+            try:
+                project_sections = await client.get_sections(project.id)
+            except Exception as exc:
+                console.print(
+                    f"[red]Failed to fetch sections for project {project.id}: {exc}[/red]"
+                )
+                sys.exit(1)
+            for section in project_sections:
+                if section.id in seen_section_ids:
+                    continue
+                seen_section_ids.add(section.id)
+                sections.append(section)
+        labels = await asyncio.to_thread(client.api.get_labels)
+    except Exception as exc:
+        console.print(f"[red]Failed to fetch Todoist data: {exc}[/red]")
+        sys.exit(1)
+
+    shared_labels = []
+    if hasattr(client.api, "get_shared_labels"):
+        try:
+            shared_labels = await asyncio.to_thread(client.api.get_shared_labels)
+        except Exception as exc:
+            console.print(f"[red]Failed to fetch shared labels: {exc}[/red]")
+            sys.exit(1)
+
+    comments_by_project = {}
+    if hasattr(client.api, "get_comments"):
+        for project in projects:
+            try:
+                project_comments = await asyncio.to_thread(
+                    client.api.get_comments, project_id=project.id
+                )
+            except Exception as exc:
+                console.print(
+                    f"[red]Failed to fetch comments for project {project.id}: {exc}[/red]"
+                )
+                sys.exit(1)
+            if project_comments:
+                comments_by_project[str(project.id)] = project_comments
+
+    collaborators_by_project = {}
+    if hasattr(client.api, "get_collaborators"):
+        for project in projects:
+            try:
+                project_collaborators = await asyncio.to_thread(
+                    client.api.get_collaborators, project_id=project.id
+                )
+            except Exception as exc:
+                console.print(
+                    f"[red]Failed to fetch collaborators for project {project.id}: {exc}[/red]"
+                )
+                sys.exit(1)
+            if project_collaborators:
+                collaborators_by_project[str(project.id)] = project_collaborators
+
+    dump_payload = {
+        "projects": projects,
+        "sections": sections,
+        "tasks": tasks,
+        "labels": labels,
+    }
+    if shared_labels:
+        dump_payload["shared_labels"] = shared_labels
+    if comments_by_project:
+        dump_payload["comments"] = {"by_project": comments_by_project}
+    if collaborators_by_project:
+        dump_payload["collaborators"] = {"by_project": collaborators_by_project}
+
+    serialized = serialize_todoist_object(dump_payload)
+    indent_value = 2 if indent is None else indent
+    json_output = json.dumps(
+        serialized, ensure_ascii=False, indent=indent_value, sort_keys=True
+    )
+
+    if output_path:
+        try:
+            with open(output_path, "w", encoding="utf-8") as handle:
+                handle.write(json_output)
+        except Exception as exc:
+            console.print(f"[red]Failed to write dump to {output_path}: {exc}[/red]")
+            sys.exit(1)
+        console.print(f"[green]Wrote Todoist data dump to {output_path}[/green]")
+        return
+
+    console.print_json(json_output)
+
+
+###############################################################################
 # Main with Subparsers, Aliases, and Cumulative Filters
 ###############################################################################
 async def async_main():
@@ -934,6 +1051,7 @@ async def async_main():
         "project": ["projects", "proj", "pro", "p"],
         "section": ["sections", "sect", "sec", "s"],
         "label": ["labels", "lab", "lbl"],
+        "dump": ["export", "backup"],
     }
     subcmd_aliases = {
         "list": ["ls", "l"],
@@ -1254,6 +1372,26 @@ async def async_main():
     )
     lab_delete.add_argument("name", help="Label name (or partial)")
 
+    dump_parser = subparsers.add_parser(
+        "dump",
+        aliases=cmd_aliases["dump"],
+        help="Dump all Todoist data as JSON",
+        formatter_class=RawTextRichHelpFormatter,
+        parents=[common_parser],
+    )
+    dump_parser.add_argument(
+        "-o",
+        "--output",
+        help="Write JSON dump to a file instead of stdout",
+        default=argparse.SUPPRESS,
+    )
+    dump_parser.add_argument(
+        "--indent",
+        type=int,
+        help="Indent level for JSON output (default: 2)",
+        default=argparse.SUPPRESS,
+    )
+
     args = parser.parse_args()
 
     for attr, default in (
@@ -1265,6 +1403,8 @@ async def async_main():
         ("json", False),
         ("todoist_filter", None),
         ("content_pattern", None),
+        ("output", None),
+        ("indent", None),
     ):
         if not hasattr(args, attr):
             setattr(args, attr, default)
@@ -1452,6 +1592,13 @@ async def async_main():
             await update_label(client, name=args.name, new_name=args.new_name)
         elif args.label_command == "delete":
             await delete_label(client, name_partial=args.name)
+
+    elif args.command == "dump":
+        await dump_all_data(
+            client,
+            output_path=args.output,
+            indent=args.indent,
+        )
 
 
 def main():
