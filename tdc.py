@@ -23,6 +23,10 @@ LOGGER = logging.getLogger(__name__)
 API_TOKEN = os.getenv("TODOIST_API_TOKEN") or os.getenv("TODOIST_API_KEY")
 STRIP_EMOJIS = False
 
+SECTION_ALL_SENTINEL = "__ALL_SECTIONS__"
+
+DeletionResult = namedtuple("DeletionResult", ["deleted", "fatal"])
+
 # Color constants
 TASK_COLOR = "blue"
 PROJECT_COLOR = "yellow"
@@ -132,10 +136,11 @@ async def resolve_task_identifier(
     client,
     identifier,
     project_name=None,
+    project_id=None,
     todoist_filter=None,
     content_pattern=None,
 ):
-    pid = None
+    pid = project_id
     if project_name:
         pid = await find_project_id_partial(client, project_name)
         if not pid:
@@ -150,6 +155,9 @@ async def resolve_task_identifier(
             )
         else:
             console_err.print(f"[cyan]Operating in project ID {pid}[/cyan]")
+
+    elif project_id is not None:
+        pid = project_id
 
     lookup_is_id = identifier.isdigit()
     identifier_lower = identifier.lower()
@@ -680,41 +688,45 @@ async def mark_task_done(client, content=None, project_name=None):
 
 async def delete_task(
     client,
-    content=None,
+    contents=None,
     project_name=None,
     todoist_filter=None,
     content_pattern=None,
 ):
-    identifier = content.strip() if content else None
-    if not identifier:
+    identifiers = []
+    if contents:
+        for entry in contents:
+            if not entry:
+                continue
+            stripped = entry.strip()
+            if stripped:
+                identifiers.append(stripped)
+
+    pattern_input = content_pattern.strip() if content_pattern else None
+
+    if not identifiers and not pattern_input:
         console_err.print("[red]Task content or ID is required.[/red]")
         sys.exit(2)
-    target, pid, lookup_is_id = await resolve_task_identifier(
-        client,
-        identifier,
-        project_name=project_name,
-        todoist_filter=todoist_filter,
-        content_pattern=content_pattern,
-    )
-    if target:
+
+    project_id = None
+    fatal_error = False
+
+    async def delete_task_object(task, pid_hint):
+        nonlocal fatal_error
         try:
-            await asyncio.to_thread(client.api.delete_task, target.id)
-            console.print(f"[green]Deleted {task_str(target)}[/green]")
+            await asyncio.to_thread(client.api.delete_task, task.id)
+            console.print(f"[green]Deleted {task_str(task)}[/green]")
             invalidate_pid = (
-                pid if pid is not None else getattr(target, "project_id", None)
+                pid_hint if pid_hint is not None else getattr(task, "project_id", None)
             )
             client.invalidate_tasks(invalidate_pid)
-            return
-        except Exception as e:
-            console_err.print(f"[red]Failed to delete {task_str(target)}: {e}[/red]")
-            sys.exit(1)
-    pattern_source = None
-    if content_pattern and content_pattern.strip():
-        pattern_source = content_pattern.strip()
-    elif identifier and not lookup_is_id:
-        pattern_source = identifier
+            return DeletionResult(True, False)
+        except Exception as exc:
+            console_err.print(f"[red]Failed to delete {task_str(task)}: {exc}[/red]")
+            fatal_error = True
+            return DeletionResult(False, True)
 
-    if pattern_source:
+    async def delete_matches_for_pattern(pid, pattern_source):
         compiled = compile_content_pattern(pattern_source)
         scoped_tasks = await client.get_tasks(project_id=pid, filter_str=todoist_filter)
         matches = [t for t in scoped_tasks if task_matches_pattern(t, compiled)]
@@ -722,21 +734,80 @@ async def delete_task(
             console_err.print(
                 f"[yellow]No task matching pattern '{pattern_source}'.[/yellow]"
             )
-            return
+            return DeletionResult(False, False)
+        result = DeletionResult(False, False)
         for match in matches:
-            try:
-                await asyncio.to_thread(client.api.delete_task, match.id)
-                console.print(f"[green]Deleted {task_str(match)}[/green]")
-            except Exception as e:
-                console_err.print(f"[red]Failed to delete {task_str(match)}: {e}[/red]")
-                sys.exit(1)
-        client.invalidate_tasks(pid)
-        return
+            deletion = await delete_task_object(match, pid)
+            result = DeletionResult(
+                result.deleted or deletion.deleted,
+                result.fatal or deletion.fatal,
+            )
+        return result
 
-    if lookup_is_id:
-        console_err.print(f"[yellow]No task matching ID '{identifier}'.[/yellow]")
-    else:
-        console_err.print(f"[yellow]No task matching '{identifier}'.[/yellow]")
+    async def delete_identifier(identifier):
+        nonlocal project_id
+        resolved_project_name = project_name if project_id is None else None
+        target, pid, lookup_is_id = await resolve_task_identifier(
+            client,
+            identifier,
+            project_name=resolved_project_name,
+            project_id=project_id,
+            todoist_filter=todoist_filter,
+            content_pattern=content_pattern,
+        )
+        if project_id is None:
+            project_id = pid
+        if target:
+            return await delete_task_object(target, pid)
+
+        pattern_source = None
+        if content_pattern and content_pattern.strip():
+            pattern_source = content_pattern.strip()
+        elif identifier and not lookup_is_id:
+            pattern_source = identifier
+
+        if pattern_source:
+            return await delete_matches_for_pattern(pid, pattern_source)
+
+        if lookup_is_id:
+            console_err.print(f"[yellow]No task matching ID '{identifier}'.[/yellow]")
+        else:
+            console_err.print(f"[yellow]No task matching '{identifier}'.[/yellow]")
+        return DeletionResult(False, False)
+
+    for identifier in identifiers:
+        await delete_identifier(identifier)
+
+    if not identifiers and pattern_input:
+        async def resolve_project_for_pattern():
+            nonlocal project_id
+            if project_id is not None:
+                return project_id
+            if not project_name:
+                return None
+            pid = await find_project_id_partial(client, project_name)
+            if not pid:
+                console_err.print(
+                    f"[red]No project found matching '{project_name}'.[/red]"
+                )
+                sys.exit(1)
+            projects = await client.get_projects()
+            project_lookup = {p.id: p for p in projects}
+            project_obj = project_lookup.get(pid)
+            if project_obj:
+                console_err.print(
+                    f"[cyan]Operating in project {project_str(project_obj)}[/cyan]"
+                )
+            else:
+                console_err.print(f"[cyan]Operating in project ID {pid}[/cyan]")
+            project_id = pid
+            return pid
+
+        pid = await resolve_project_for_pattern()
+        await delete_matches_for_pattern(pid, pattern_input)
+
+    if fatal_error:
+        sys.exit(1)
 
 
 ###############################################################################
@@ -815,6 +886,80 @@ async def delete_project(client, name_partial):
         client.invalidate_projects()
     except Exception as e:
         console_err.print(f"[red]Failed to delete project '{name_partial}': {e}[/red]")
+        sys.exit(1)
+
+
+async def clear_project(client, name_partial, delete_sections=False):
+    pid = await find_project_id_partial(client, name_partial)
+    if not pid:
+        console_err.print(
+            f"[yellow]No project found matching '{name_partial}'.[/yellow]"
+        )
+        return
+
+    projects = await client.get_projects()
+    project_lookup = {p.id: p for p in projects}
+    project_obj = project_lookup.get(pid)
+    project_desc = (
+        project_str(project_obj) if project_obj else f"project ID {pid}"
+    )
+
+    fatal_error = False
+
+    try:
+        tasks = await client.get_tasks(project_id=pid)
+    except Exception as exc:
+        console_err.print(
+            f"[red]Failed to fetch tasks for {project_desc}: {exc}[/red]"
+        )
+        sys.exit(1)
+
+    if tasks:
+        for task in tasks:
+            try:
+                await asyncio.to_thread(client.api.delete_task, task.id)
+                console.print(f"[green]Deleted {task_str(task)}[/green]")
+            except Exception as exc:
+                console_err.print(
+                    f"[red]Failed to delete {task_str(task)}: {exc}[/red]"
+                )
+                fatal_error = True
+        client.invalidate_tasks(pid)
+    else:
+        console.print(
+            f"[yellow]No tasks found in {project_desc} to delete.[/yellow]"
+        )
+
+    if delete_sections:
+        try:
+            sections = await client.get_sections(pid)
+        except Exception as exc:
+            console_err.print(
+                f"[red]Failed to fetch sections for {project_desc}: {exc}[/red]"
+            )
+            fatal_error = True
+        else:
+            if sections:
+                for section in sections:
+                    try:
+                        await asyncio.to_thread(
+                            client.api.delete_section, section.id
+                        )
+                        console.print(
+                            f"[green]Deleted section {section_str(section)}[/green]"
+                        )
+                    except Exception as exc:
+                        console_err.print(
+                            f"[red]Failed to delete section {section_str(section)}: {exc}[/red]"
+                        )
+                        fatal_error = True
+                client.invalidate_sections(pid)
+            else:
+                console.print(
+                    f"[yellow]No sections found in {project_desc} to delete.[/yellow]"
+                )
+
+    if fatal_error:
         sys.exit(1)
 
 
@@ -1142,7 +1287,12 @@ async def async_main():
     common_parser.add_argument(
         "-S",
         "--section",
-        help="Section partial name match",
+        nargs="?",
+        const=SECTION_ALL_SENTINEL,
+        help=(
+            "Section partial name match. For 'project clear', pass the flag without a value"
+            " to delete all sections in the project."
+        ),
         default=argparse.SUPPRESS,
     )
     common_parser.add_argument(
@@ -1308,9 +1458,9 @@ async def async_main():
         parents=[common_parser],
     )
     delete_task_parser.add_argument(
-        "content",
-        nargs="?",
-        help="Task content or ID to delete (case-insensitive for content)",
+        "contents",
+        nargs="*",
+        help="Task content or IDs to delete (case-insensitive for content)",
     )
     delete_task_parser.add_argument(
         "--filter",
@@ -1318,9 +1468,10 @@ async def async_main():
         help="Todoist filter query to apply when resolving the task",
     )
     delete_task_parser.add_argument(
-        "content_pattern",
-        nargs="?",
+        "--pattern",
+        dest="content_pattern",
         help="Regex (case-insensitive) to match task content when resolving",
+        default=argparse.SUPPRESS,
     )
 
     # Top-level command: project
@@ -1366,6 +1517,14 @@ async def async_main():
         parents=[common_parser],
     )
     proj_delete.add_argument("name", help="Project name (or partial)")
+
+    proj_clear = project_subparsers.add_parser(
+        "clear",
+        help="Delete all tasks in a project",
+        formatter_class=RawTextRichHelpFormatter,
+        parents=[common_parser],
+    )
+    proj_clear.add_argument("name", help="Project name (or partial)")
 
     # Top-level command: section
     section_parser = subparsers.add_parser(
@@ -1494,6 +1653,11 @@ async def async_main():
         if not hasattr(args, attr):
             setattr(args, attr, default)
 
+    delete_all_sections = args.section == SECTION_ALL_SENTINEL
+    if delete_all_sections:
+        args.section = None
+    setattr(args, "delete_all_sections", delete_all_sections)
+
     if args.debug:
         logging.basicConfig(level=logging.DEBUG)
         LOGGER.debug("args: %s", args)
@@ -1524,6 +1688,14 @@ async def async_main():
             if args.label_command == canonical or args.label_command in aliases:
                 args.label_command = canonical
                 break
+
+    if args.delete_all_sections:
+        project_command = getattr(args, "project_command", None)
+        if not (args.command == "project" and project_command == "clear"):
+            console_err.print(
+                "[red]--section for this command requires a section name.[/red]"
+            )
+            sys.exit(2)
 
     STRIP_EMOJIS = args.strip_emojis
     api_key = args.api_key or API_TOKEN
@@ -1595,7 +1767,7 @@ async def async_main():
         elif args.task_command == "delete":
             await delete_task(
                 client,
-                content=args.content,
+                contents=args.contents,
                 project_name=args.project,
                 todoist_filter=args.todoist_filter,
                 content_pattern=args.content_pattern,
@@ -1610,6 +1782,12 @@ async def async_main():
             await update_project(client, name=args.name, new_name=args.new_name)
         elif args.project_command == "delete":
             await delete_project(client, name_partial=args.name)
+        elif args.project_command == "clear":
+            await clear_project(
+                client,
+                name_partial=args.name,
+                delete_sections=args.delete_all_sections,
+            )
 
     elif args.command == "section":
         if args.section_command == "list":

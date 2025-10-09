@@ -99,17 +99,22 @@ tdc --api-key <YOUR_API_KEY> task done "Brush teeth" --project "Daily Routines"
 tdc --api-key <YOUR_API_KEY> task delete "Brush teeth"
 ```
 
+(Optional) Delete multiple tasks in one command:
+
+```
+tdc --api-key <YOUR_API_KEY> task delete "Brush teeth" "Wash face"
+```
+
 (Optional) Combine with a project and Todoist filter for extra safety:
 
 ```
 tdc --api-key <YOUR_API_KEY> task delete "Brush" --project "Daily Routines" --filter "assigned to: me"
 ```
 
-(Optional) Add a simple regex (case-insensitive) after the task identifier to limit
-candidate matches when deleting:
+(Optional) Add a simple regex (case-insensitive) to limit candidate matches when deleting:
 
 ```
-tdc --api-key <YOUR_API_KEY> task delete "Brush" nightly
+tdc --api-key <YOUR_API_KEY> task delete --pattern nightly
 ```
 
 ### List / Create Projects
@@ -126,6 +131,18 @@ tdc --api-key <YOUR_API_KEY> project list
 
 ```
 tdc --api-key <YOUR_API_KEY> project create "MyNewProject"
+```
+
+**Clear a Project** (delete all tasks, optionally all sections):
+
+```
+tdc --api-key <YOUR_API_KEY> project clear "MyNewProject"
+```
+
+Add `--section` (with no value) to also delete every section in the project:
+
+```
+tdc --api-key <YOUR_API_KEY> project clear "MyNewProject" --section
 ```
 
 ### List Sections
