@@ -16,6 +16,7 @@ from rich_argparse import RawTextRichHelpFormatter
 from todoist_api_python.api import TodoistAPI
 
 console = Console()
+console_err = Console(file=sys.stderr)
 
 LOGGER = logging.getLogger(__name__)
 
@@ -116,7 +117,7 @@ def compile_content_pattern(pattern):
     try:
         return regex.compile(pattern, regex.IGNORECASE)
     except regex.error as exc:
-        console.print(f"[red]Invalid content filter '{pattern}': {exc}[/red]")
+        console_err.print(f"[red]Invalid content filter '{pattern}': {exc}[/red]")
         sys.exit(1)
 
 
@@ -138,17 +139,17 @@ async def resolve_task_identifier(
     if project_name:
         pid = await find_project_id_partial(client, project_name)
         if not pid:
-            console.print(f"[red]No project found matching '{project_name}'.[/red]")
+            console_err.print(f"[red]No project found matching '{project_name}'.[/red]")
             sys.exit(1)
         projects = await client.get_projects()
         project_lookup = {p.id: p for p in projects}
         project_obj = project_lookup.get(pid)
         if project_obj:
-            console.print(
+            console_err.print(
                 f"[cyan]Operating in project {project_str(project_obj)}[/cyan]"
             )
         else:
-            console.print(f"[cyan]Operating in project ID {pid}[/cyan]")
+            console_err.print(f"[cyan]Operating in project ID {pid}[/cyan]")
 
     lookup_is_id = identifier.isdigit()
     identifier_lower = identifier.lower()
@@ -191,7 +192,7 @@ async def resolve_task_identifier(
                     if actual_project
                     else f"project ID {actual_pid}"
                 )
-                console.print(
+                console_err.print(
                     "[red]Found matching task "
                     f"{task_str(task)} but it belongs to {actual_desc} instead of {expected_desc}.[/red]"
                 )
@@ -297,7 +298,7 @@ async def list_tasks(
     if project_name:
         pid = await find_project_id_partial(client, project_name)
         if not pid:
-            console.print(f"[red]No project found matching '{project_name}'.[/red]")
+            console_err.print(f"[red]No project found matching '{project_name}'.[/red]")
             sys.exit(1)
 
     projects = await client.get_projects()
@@ -306,13 +307,13 @@ async def list_tasks(
     if pid is not None:
         project_obj = projects_dict.get(pid)
         if project_obj:
-            console.print(
-                f"[cyan]Operating in project {project_str(project_obj)}[/cyan]"
+            console_err.print(
+                f"[cyan]Operating in project {project_str(project_obj)}[/cyan]",
             )
         else:
-            console.print(f"[cyan]Operating in project ID {pid}[/cyan]")
+            console_err.print(f"[cyan]Operating in project ID {pid}[/cyan]")
     else:
-        console.print("[cyan]Operating across all projects[/cyan]")
+        console_err.print("[cyan]Operating across all projects[/cyan]")
 
     # Get tasks for a project (or all)
     compiled_pattern = compile_content_pattern(content_pattern)
@@ -326,11 +327,11 @@ async def list_tasks(
     show_section_col = False
     if section_name:
         if not project_name:
-            console.print("[red]--section requires --project.[/red]")
+            console_err.print("[red]--section requires --project.[/red]")
             sys.exit(1)
         sid = await find_section_id_partial(client, pid, section_name)
         if not sid:
-            console.print(
+            console_err.print(
                 f"[red]No section found matching '{section_name}' in project '{project_name}'.[/red]"
             )
             sys.exit(1)
@@ -483,15 +484,15 @@ async def create_task(
     if project_name:
         pid = await find_project_id_partial(client, project_name)
         if not pid:
-            console.print(f"[red]No project found matching '{project_name}'.[/red]")
+            console_err.print(f"[red]No project found matching '{project_name}'.[/red]")
             sys.exit(1)
     if section_name:
         if not pid:
-            console.print("[red]--section requires --project[/red]")
+            console_err.print("[red]--section requires --project[/red]")
             sys.exit(1)
         sid = await find_section_id_partial(client, pid, section_name)
         if not sid:
-            console.print(f"[red]No section found matching '{section_name}'[/red]")
+            console_err.print(f"[red]No section found matching '{section_name}'[/red]")
             sys.exit(1)
     if not force:
         tasks = await client.get_tasks(pid) if pid else await client.get_tasks()
@@ -499,7 +500,7 @@ async def create_task(
             if remove_emojis(t.content.strip().lower()) == remove_emojis(
                 content.strip().lower()
             ):
-                console.print(
+                console_err.print(
                     f"[yellow]Task {task_str(t)} already exists, skipping.[/yellow]"
                 )
                 return
@@ -538,9 +539,9 @@ async def create_task(
                 )
                 console.print(f"[green]Reminder set for {task_str(new_task)}[/green]")
             except Exception as e:
-                console.print(f"[yellow]Failed to add reminder: {e}[/yellow]")
+                console_err.print(f"[yellow]Failed to add reminder: {e}[/yellow]")
     except Exception as e:
-        console.print(f"[red]Failed creating task '{content}': {e}[/red]")
+        console_err.print(f"[red]Failed creating task '{content}': {e}[/red]")
         sys.exit(1)
 
 
@@ -556,18 +557,18 @@ async def update_task(
 ):
     identifier = content.strip() if content else None
     if not identifier:
-        console.print("[red]Task content or ID is required.[/red]")
+        console_err.print("[red]Task content or ID is required.[/red]")
         sys.exit(2)
     target, pid, lookup_is_id = await resolve_task_identifier(
         client, identifier, project_name=project_name
     )
     if not target:
         if lookup_is_id:
-            console.print(
+            console_err.print(
                 f"[yellow]No matching task found for ID '{identifier}'.[/yellow]"
             )
         else:
-            console.print(
+            console_err.print(
                 f"[yellow]No matching task found for '{identifier}'.[/yellow]"
             )
         return
@@ -586,14 +587,14 @@ async def update_task(
         invalidate_pid = pid if pid is not None else getattr(target, "project_id", None)
         client.invalidate_tasks(invalidate_pid)
     except Exception as e:
-        console.print(f"[red]Failed to update task '{identifier}': {e}[/red]")
+        console_err.print(f"[red]Failed to update task '{identifier}': {e}[/red]")
         sys.exit(1)
 
 
 async def mark_task_done(client, content=None, project_name=None):
     identifier = content.strip() if content else None
     if not identifier:
-        console.print("[red]Task content or ID is required.[/red]")
+        console_err.print("[red]Task content or ID is required.[/red]")
         sys.exit(2)
     target, pid, lookup_is_id = await resolve_task_identifier(
         client, identifier, project_name=project_name
@@ -608,12 +609,12 @@ async def mark_task_done(client, content=None, project_name=None):
             client.invalidate_tasks(invalidate_pid)
             return
         except Exception as e:
-            console.print(f"[red]Failed to mark done: {task_str(target)}: {e}[/red]")
+            console_err.print(f"[red]Failed to mark done: {task_str(target)}: {e}[/red]")
             sys.exit(1)
     if lookup_is_id:
-        console.print(f"[yellow]No matching task found for ID '{identifier}'.[/yellow]")
+        console_err.print(f"[yellow]No matching task found for ID '{identifier}'.[/yellow]")
     else:
-        console.print(f"[yellow]No matching task found for '{identifier}'.[/yellow]")
+        console_err.print(f"[yellow]No matching task found for '{identifier}'.[/yellow]")
 
 
 async def delete_task(
@@ -625,7 +626,7 @@ async def delete_task(
 ):
     identifier = content.strip() if content else None
     if not identifier:
-        console.print("[red]Task content or ID is required.[/red]")
+        console_err.print("[red]Task content or ID is required.[/red]")
         sys.exit(2)
     target, pid, lookup_is_id = await resolve_task_identifier(
         client,
@@ -644,7 +645,7 @@ async def delete_task(
             client.invalidate_tasks(invalidate_pid)
             return
         except Exception as e:
-            console.print(f"[red]Failed to delete {task_str(target)}: {e}[/red]")
+            console_err.print(f"[red]Failed to delete {task_str(target)}: {e}[/red]")
             sys.exit(1)
     pattern_source = None
     if content_pattern and content_pattern.strip():
@@ -657,7 +658,7 @@ async def delete_task(
         scoped_tasks = await client.get_tasks(project_id=pid, filter_str=todoist_filter)
         matches = [t for t in scoped_tasks if task_matches_pattern(t, compiled)]
         if not matches:
-            console.print(
+            console_err.print(
                 f"[yellow]No task matching pattern '{pattern_source}'.[/yellow]"
             )
             return
@@ -666,15 +667,15 @@ async def delete_task(
                 await asyncio.to_thread(client.api.delete_task, match.id)
                 console.print(f"[green]Deleted {task_str(match)}[/green]")
             except Exception as e:
-                console.print(f"[red]Failed to delete {task_str(match)}: {e}[/red]")
+                console_err.print(f"[red]Failed to delete {task_str(match)}: {e}[/red]")
                 sys.exit(1)
         client.invalidate_tasks(pid)
         return
 
     if lookup_is_id:
-        console.print(f"[yellow]No task matching ID '{identifier}'.[/yellow]")
+        console_err.print(f"[yellow]No task matching ID '{identifier}'.[/yellow]")
     else:
-        console.print(f"[yellow]No task matching '{identifier}'.[/yellow]")
+        console_err.print(f"[yellow]No task matching '{identifier}'.[/yellow]")
 
 
 ###############################################################################
@@ -684,7 +685,7 @@ async def list_projects(client, show_ids=False, output_json=False):
     try:
         projects = await client.get_projects()
     except Exception as e:
-        console.print(f"[red]Failed to fetch projects: {e}[/red]")
+        console_err.print(f"[red]Failed to fetch projects: {e}[/red]")
         sys.exit(1)
     projects.sort(key=lambda x: x.name.lower())
     if output_json:
@@ -707,7 +708,7 @@ async def create_project(client, name):
         projects = await client.get_projects()
         for p in projects:
             if p.name.strip().lower() == name.strip().lower():
-                console.print(
+                console_err.print(
                     f"[yellow]Project {project_str(p)} already exists.[/yellow]"
                 )
                 return
@@ -715,7 +716,7 @@ async def create_project(client, name):
         console.print(f"[green]Created project {project_str(newp)}[/green]")
         client.invalidate_projects()
     except Exception as e:
-        console.print(f"[red]Failed to create project '{name}': {e}[/red]")
+        console_err.print(f"[red]Failed to create project '{name}': {e}[/red]")
         sys.exit(1)
 
 
@@ -727,7 +728,7 @@ async def update_project(client, name, new_name):
             target = p
             break
     if not target:
-        console.print(f"[yellow]No matching project found for '{name}'.[/yellow]")
+        console_err.print(f"[yellow]No matching project found for '{name}'.[/yellow]")
         return
     try:
         updated = await asyncio.to_thread(
@@ -736,21 +737,21 @@ async def update_project(client, name, new_name):
         console.print(f"[green]Updated project: {project_str(updated)}[/green]")
         client.invalidate_projects()
     except Exception as e:
-        console.print(f"[red]Failed to update project '{name}': {e}[/red]")
+        console_err.print(f"[red]Failed to update project '{name}': {e}[/red]")
         sys.exit(1)
 
 
 async def delete_project(client, name_partial):
     pid = await find_project_id_partial(client, name_partial)
     if not pid:
-        console.print(f"[yellow]No project found matching '{name_partial}'.[/yellow]")
+        console_err.print(f"[yellow]No project found matching '{name_partial}'.[/yellow]")
         return
     try:
         await asyncio.to_thread(client.api.delete_project, pid)
         console.print(f"[green]Deleted project ID {pid}[/green]")
         client.invalidate_projects()
     except Exception as e:
-        console.print(f"[red]Failed to delete project '{name_partial}': {e}[/red]")
+        console_err.print(f"[red]Failed to delete project '{name_partial}': {e}[/red]")
         sys.exit(1)
 
 
@@ -760,12 +761,12 @@ async def delete_project(client, name_partial):
 async def list_sections(client, show_ids, project_name, output_json=False):
     pid = await find_project_id_partial(client, project_name)
     if not pid:
-        console.print(f"[red]No project found matching '{project_name}'.[/red]")
+        console_err.print(f"[red]No project found matching '{project_name}'.[/red]")
         sys.exit(1)
     try:
         secs = await client.get_sections(pid)
     except Exception as e:
-        console.print(f"[red]Failed fetching sections: {e}[/red]")
+        console_err.print(f"[red]Failed fetching sections: {e}[/red]")
         sys.exit(1)
     secs.sort(key=lambda x: x.name.lower())
     if output_json:
@@ -786,13 +787,13 @@ async def list_sections(client, show_ids, project_name, output_json=False):
 async def create_section(client, project_name, section_name):
     pid = await find_project_id_partial(client, project_name)
     if not pid:
-        console.print(f"[red]No project found matching '{project_name}'.[/red]")
+        console_err.print(f"[red]No project found matching '{project_name}'.[/red]")
         sys.exit(1)
     try:
         secs = await client.get_sections(pid)
         for s in secs:
             if s.name.strip().lower() == section_name.strip().lower():
-                console.print(
+                console_err.print(
                     f"[yellow]Section {section_str(s)} already exists.[/yellow]"
                 )
                 return
@@ -802,14 +803,14 @@ async def create_section(client, project_name, section_name):
         console.print(f"[green]Created section {section_str(new_sec)}[/green]")
         client.invalidate_sections(pid)
     except Exception as e:
-        console.print(f"[red]Failed to create section '{section_name}': {e}[/red]")
+        console_err.print(f"[red]Failed to create section '{section_name}': {e}[/red]")
         sys.exit(1)
 
 
 async def update_section(client, project_name, section_name, new_name):
     pid = await find_project_id_partial(client, project_name)
     if not pid:
-        console.print(f"[red]No project found matching '{project_name}'.[/red]")
+        console_err.print(f"[red]No project found matching '{project_name}'.[/red]")
         sys.exit(1)
     secs = await client.get_sections(pid)
     target = None
@@ -818,7 +819,7 @@ async def update_section(client, project_name, section_name, new_name):
             target = s
             break
     if not target:
-        console.print(
+        console_err.print(
             f"[yellow]No matching section found for '{section_name}' in project '{project_name}'.[/yellow]"
         )
         return
@@ -829,14 +830,14 @@ async def update_section(client, project_name, section_name, new_name):
         console.print(f"[green]Updated section: {section_str(updated)}[/green]")
         client.invalidate_sections(pid)
     except Exception as e:
-        console.print(f"[red]Failed to update section '{section_name}': {e}[/red]")
+        console_err.print(f"[red]Failed to update section '{section_name}': {e}[/red]")
         sys.exit(1)
 
 
 async def delete_section(client, project_name, section_partial):
     pid = await find_project_id_partial(client, project_name)
     if not pid:
-        console.print(f"[red]No project found matching '{project_name}'.[/red]")
+        console_err.print(f"[red]No project found matching '{project_name}'.[/red]")
         sys.exit(1)
     try:
         secs = await client.get_sections(pid)
@@ -849,7 +850,7 @@ async def delete_section(client, project_name, section_partial):
                 match_obj = s
                 break
         if not match_id:
-            console.print(
+            console_err.print(
                 f"[yellow]No section found matching '{section_partial}'.[/yellow]"
             )
             return
@@ -857,7 +858,7 @@ async def delete_section(client, project_name, section_partial):
         console.print(f"[green]Deleted section {section_str(match_obj)}[/green]")
         client.invalidate_sections(pid)
     except Exception as e:
-        console.print(f"[red]Failed to delete section '{section_partial}': {e}[/red]")
+        console_err.print(f"[red]Failed to delete section '{section_partial}': {e}[/red]")
         sys.exit(1)
 
 
@@ -868,7 +869,7 @@ async def list_labels(client, show_ids=False, output_json=False):
     try:
         labels = await asyncio.to_thread(client.api.get_labels)
     except Exception as e:
-        console.print(f"[red]Failed to fetch labels: {e}[/red]")
+        console_err.print(f"[red]Failed to fetch labels: {e}[/red]")
         sys.exit(1)
     labels.sort(key=lambda la: la.name.lower())
     if output_json:
@@ -891,14 +892,14 @@ async def create_label(client, name):
         labels = await asyncio.to_thread(client.api.get_labels)
         for la in labels:
             if la.name.strip().lower() == name.strip().lower():
-                console.print(f"[yellow]Label {la.name} already exists.[/yellow]")
+                console_err.print(f"[yellow]Label {la.name} already exists.[/yellow]")
                 return
         new_label = await asyncio.to_thread(client.api.add_label, name=name)
         console.print(
             f"[green]Created label {new_label.name} (ID: {new_label.id})[/green]"
         )
     except Exception as e:
-        console.print(f"[red]Failed to create label '{name}': {e}[/red]")
+        console_err.print(f"[red]Failed to create label '{name}': {e}[/red]")
         sys.exit(1)
 
 
@@ -911,7 +912,7 @@ async def update_label(client, name, new_name):
                 target = la
                 break
         if not target:
-            console.print(f"[yellow]No matching label found for '{name}'.[/yellow]")
+            console_err.print(f"[yellow]No matching label found for '{name}'.[/yellow]")
             return
         updated = await asyncio.to_thread(
             client.api.update_label, target.id, name=new_name
@@ -920,7 +921,7 @@ async def update_label(client, name, new_name):
             f"[green]Updated label: {updated.name} (ID: {updated.id})[/green]"
         )
     except Exception as e:
-        console.print(f"[red]Failed to update label '{name}': {e}[/red]")
+        console_err.print(f"[red]Failed to update label '{name}': {e}[/red]")
         sys.exit(1)
 
 
@@ -933,12 +934,12 @@ async def delete_label(client, name_partial):
                 target = la
                 break
         if not target:
-            console.print(f"[yellow]No label found matching '{name_partial}'.[/yellow]")
+            console_err.print(f"[yellow]No label found matching '{name_partial}'.[/yellow]")
             return
         await asyncio.to_thread(client.api.delete_label, target.id)
         console.print(f"[green]Deleted label {target.name} (ID: {target.id})[/green]")
     except Exception as e:
-        console.print(f"[red]Failed to delete label '{name_partial}': {e}[/red]")
+        console_err.print(f"[red]Failed to delete label '{name_partial}': {e}[/red]")
         sys.exit(1)
 
 
@@ -955,7 +956,7 @@ async def dump_all_data(client, output_path=None, indent=None):
             try:
                 project_sections = await client.get_sections(project.id)
             except Exception as exc:
-                console.print(
+                console_err.print(
                     f"[red]Failed to fetch sections for project {project.id}: {exc}[/red]"
                 )
                 sys.exit(1)
@@ -966,7 +967,7 @@ async def dump_all_data(client, output_path=None, indent=None):
                 sections.append(section)
         labels = await asyncio.to_thread(client.api.get_labels)
     except Exception as exc:
-        console.print(f"[red]Failed to fetch Todoist data: {exc}[/red]")
+        console_err.print(f"[red]Failed to fetch Todoist data: {exc}[/red]")
         sys.exit(1)
 
     shared_labels = []
@@ -974,7 +975,7 @@ async def dump_all_data(client, output_path=None, indent=None):
         try:
             shared_labels = await asyncio.to_thread(client.api.get_shared_labels)
         except Exception as exc:
-            console.print(f"[red]Failed to fetch shared labels: {exc}[/red]")
+            console_err.print(f"[red]Failed to fetch shared labels: {exc}[/red]")
             sys.exit(1)
 
     comments_by_project = {}
@@ -985,7 +986,7 @@ async def dump_all_data(client, output_path=None, indent=None):
                     client.api.get_comments, project_id=project.id
                 )
             except Exception as exc:
-                console.print(
+                console_err.print(
                     f"[red]Failed to fetch comments for project {project.id}: {exc}[/red]"
                 )
                 sys.exit(1)
@@ -1000,7 +1001,7 @@ async def dump_all_data(client, output_path=None, indent=None):
                     client.api.get_collaborators, project_id=project.id
                 )
             except Exception as exc:
-                console.print(
+                console_err.print(
                     f"[red]Failed to fetch collaborators for project {project.id}: {exc}[/red]"
                 )
                 sys.exit(1)
@@ -1031,7 +1032,7 @@ async def dump_all_data(client, output_path=None, indent=None):
             with open(output_path, "w", encoding="utf-8") as handle:
                 handle.write(json_output)
         except Exception as exc:
-            console.print(f"[red]Failed to write dump to {output_path}: {exc}[/red]")
+            console_err.print(f"[red]Failed to write dump to {output_path}: {exc}[/red]")
             sys.exit(1)
         console.print(f"[green]Wrote Todoist data dump to {output_path}[/green]")
         return
@@ -1443,7 +1444,7 @@ async def async_main():
     STRIP_EMOJIS = args.strip_emojis
     api_key = args.api_key or API_TOKEN
     if not api_key:
-        console.print("[red]Error: API key is required.[/red]")
+        console_err.print("[red]Error: API key is required.[/red]")
         sys.exit(2)
     api = TodoistAPI(api_key)
     client = TodoistClient(api)
@@ -1527,7 +1528,7 @@ async def async_main():
     elif args.command == "section":
         if args.section_command == "list":
             if not args.project:
-                console.print(
+                console_err.print(
                     "[red]Please provide --project for listing sections[/red]"
                 )
                 sys.exit(2)
@@ -1539,12 +1540,12 @@ async def async_main():
             )
         elif args.section_command == "create":
             if not args.section:
-                console.print(
+                console_err.print(
                     "[red]Please provide section name for creating a section[/red]"
                 )
                 sys.exit(2)
             if not args.project:
-                console.print(
+                console_err.print(
                     "[red]Please provide --project for creating a section[/red]"
                 )
                 sys.exit(2)
@@ -1553,12 +1554,12 @@ async def async_main():
             )
         elif args.section_command == "update":
             if not args.section:
-                console.print(
+                console_err.print(
                     "[red]Please provide a section for updating a section.[/red]"
                 )
                 sys.exit(2)
             if not args.project:
-                console.print(
+                console_err.print(
                     "[red]Please provide --project for updating a section[/red]"
                 )
                 sys.exit(2)
@@ -1570,12 +1571,12 @@ async def async_main():
             )
         elif args.section_command == "delete":
             if not args.section:
-                console.print(
+                console_err.print(
                     "[red]Please provide a section for deleting a section.[/red]"
                 )
                 sys.exit(2)
             if not args.project:
-                console.print(
+                console_err.print(
                     "[red]Please provide --project for deleting a section[/red]"
                 )
                 sys.exit(2)
