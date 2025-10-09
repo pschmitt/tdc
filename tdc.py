@@ -278,6 +278,43 @@ async def find_section_id_partial(client, project_id, section_name_partial):
     return None
 
 
+async def validate_labels(client, label_names):
+    """
+    Validate that all provided label names exist.
+    Returns the list of valid label names, or raises an error if any don't exist.
+    """
+    if not label_names:
+        return []
+
+    try:
+        labels = await asyncio.to_thread(client.api.get_labels)
+    except Exception as exc:
+        console_err.print(f"[red]Failed to fetch labels: {exc}[/red]")
+        sys.exit(1)
+
+    existing_labels = {label.name.lower(): label.name for label in labels}
+    valid_labels = []
+    invalid_labels = []
+
+    for label_name in label_names:
+        label_lower = label_name.lower()
+        if label_lower in existing_labels:
+            valid_labels.append(existing_labels[label_lower])
+        else:
+            invalid_labels.append(label_name)
+
+    if invalid_labels:
+        console_err.print(
+            f"[red]The following labels do not exist: {', '.join(invalid_labels)}[/red]"
+        )
+        console_err.print(
+            "[yellow]Use 'tdc label list' to see available labels, or create them with 'tdc label create <name>'[/yellow]"
+        )
+        sys.exit(1)
+
+    return valid_labels
+
+
 ###############################################################################
 # Task Commands
 ###############################################################################
@@ -425,6 +462,7 @@ async def list_tasks(
                 "due": maybe_strip_emojis(task.due.string) if task.due else None,
                 "section": maybe_strip_emojis(s_name) if s_name else None,
                 "parent": maybe_strip_emojis(parent_str) if parent_str else None,
+                "labels": task.labels if task.labels else None,
             }
             data.append(entry)
         console.print_json(json.dumps(data))
@@ -477,6 +515,7 @@ async def create_task(
     reminder=None,
     project_name=None,
     section_name=None,
+    labels=None,
     force=False,
 ):
     pid = None
@@ -494,6 +533,11 @@ async def create_task(
         if not sid:
             console_err.print(f"[red]No section found matching '{section_name}'[/red]")
             sys.exit(1)
+    # Validate labels if provided
+    valid_labels = []
+    if labels:
+        valid_labels = await validate_labels(client, labels)
+
     if not force:
         tasks = await client.get_tasks(pid) if pid else await client.get_tasks()
         for t in tasks:
@@ -513,6 +557,8 @@ async def create_task(
         kwargs["project_id"] = pid
     if sid:
         kwargs["section_id"] = sid
+    if valid_labels:
+        kwargs["labels"] = valid_labels
     try:
         new_task = await asyncio.to_thread(client.api.add_task, **kwargs)
         project_note = ""
@@ -554,6 +600,7 @@ async def update_task(
     reminder=None,
     project_name=None,
     section_name=None,
+    labels=None,
 ):
     identifier = content.strip() if content else None
     if not identifier:
@@ -572,6 +619,12 @@ async def update_task(
                 f"[yellow]No matching task found for '{identifier}'.[/yellow]"
             )
         return
+
+    # Validate labels if provided
+    valid_labels = []
+    if labels:
+        valid_labels = await validate_labels(client, labels)
+
     update_kwargs = {}
     if new_content:
         update_kwargs["content"] = new_content
@@ -579,6 +632,8 @@ async def update_task(
         update_kwargs["priority"] = priority
     if due:
         update_kwargs["due_string"] = due
+    if valid_labels:
+        update_kwargs["labels"] = valid_labels
     try:
         updated = await asyncio.to_thread(
             client.api.update_task, target.id, **update_kwargs
@@ -609,12 +664,18 @@ async def mark_task_done(client, content=None, project_name=None):
             client.invalidate_tasks(invalidate_pid)
             return
         except Exception as e:
-            console_err.print(f"[red]Failed to mark done: {task_str(target)}: {e}[/red]")
+            console_err.print(
+                f"[red]Failed to mark done: {task_str(target)}: {e}[/red]"
+            )
             sys.exit(1)
     if lookup_is_id:
-        console_err.print(f"[yellow]No matching task found for ID '{identifier}'.[/yellow]")
+        console_err.print(
+            f"[yellow]No matching task found for ID '{identifier}'.[/yellow]"
+        )
     else:
-        console_err.print(f"[yellow]No matching task found for '{identifier}'.[/yellow]")
+        console_err.print(
+            f"[yellow]No matching task found for '{identifier}'.[/yellow]"
+        )
 
 
 async def delete_task(
@@ -744,7 +805,9 @@ async def update_project(client, name, new_name):
 async def delete_project(client, name_partial):
     pid = await find_project_id_partial(client, name_partial)
     if not pid:
-        console_err.print(f"[yellow]No project found matching '{name_partial}'.[/yellow]")
+        console_err.print(
+            f"[yellow]No project found matching '{name_partial}'.[/yellow]"
+        )
         return
     try:
         await asyncio.to_thread(client.api.delete_project, pid)
@@ -858,7 +921,9 @@ async def delete_section(client, project_name, section_partial):
         console.print(f"[green]Deleted section {section_str(match_obj)}[/green]")
         client.invalidate_sections(pid)
     except Exception as e:
-        console_err.print(f"[red]Failed to delete section '{section_partial}': {e}[/red]")
+        console_err.print(
+            f"[red]Failed to delete section '{section_partial}': {e}[/red]"
+        )
         sys.exit(1)
 
 
@@ -934,7 +999,9 @@ async def delete_label(client, name_partial):
                 target = la
                 break
         if not target:
-            console_err.print(f"[yellow]No label found matching '{name_partial}'.[/yellow]")
+            console_err.print(
+                f"[yellow]No label found matching '{name_partial}'.[/yellow]"
+            )
             return
         await asyncio.to_thread(client.api.delete_label, target.id)
         console.print(f"[green]Deleted label {target.name} (ID: {target.id})[/green]")
@@ -1032,7 +1099,9 @@ async def dump_all_data(client, output_path=None, indent=None):
             with open(output_path, "w", encoding="utf-8") as handle:
                 handle.write(json_output)
         except Exception as exc:
-            console_err.print(f"[red]Failed to write dump to {output_path}: {exc}[/red]")
+            console_err.print(
+                f"[red]Failed to write dump to {output_path}: {exc}[/red]"
+            )
             sys.exit(1)
         console.print(f"[green]Wrote Todoist data dump to {output_path}[/green]")
         return
@@ -1186,6 +1255,13 @@ async def async_main():
     create_task_parser.add_argument("--due", default=None)
     create_task_parser.add_argument("--reminder", default=None)
     create_task_parser.add_argument(
+        "--label",
+        action="append",
+        dest="labels",
+        default=None,
+        help="Add label to task (can be used multiple times: --label l1 --label l2)",
+    )
+    create_task_parser.add_argument(
         "--force",
         default=False,
         action="store_true",
@@ -1206,6 +1282,13 @@ async def async_main():
     update_task_parser.add_argument("--new-content", help="New task content")
     update_task_parser.add_argument("--priority", type=int, default=None)
     update_task_parser.add_argument("--due", help="New due string")
+    update_task_parser.add_argument(
+        "--label",
+        action="append",
+        dest="labels",
+        default=None,
+        help="Set labels for task (can be used multiple times: --label l1 --label l2). This replaces all existing labels.",
+    )
     done_parser = task_subparsers.add_parser(
         "done",
         help="Mark a task as done",
@@ -1406,6 +1489,7 @@ async def async_main():
         ("content_pattern", None),
         ("output", None),
         ("indent", None),
+        ("labels", None),
     ):
         if not hasattr(args, attr):
             setattr(args, attr, default)
@@ -1488,6 +1572,7 @@ async def async_main():
                 reminder=args.reminder,
                 project_name=args.project,
                 section_name=args.section,
+                labels=args.labels,
                 force=args.force,
             )
         elif args.task_command == "update":
@@ -1499,6 +1584,7 @@ async def async_main():
                 due=args.due,
                 project_name=args.project,
                 section_name=args.section,
+                labels=args.labels,
             )
         elif args.task_command == "done":
             await mark_task_done(
