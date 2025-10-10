@@ -1,6 +1,6 @@
 [project]
 name = "todoist-tdc"
-version = "0.3.0"
+version = "0.3.1"
 description = "todoist cli"
 readme = "README.md"
 license = {file = "LICENSE"}
