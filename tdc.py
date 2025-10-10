@@ -512,6 +512,7 @@ async def list_tasks(
         table.add_column("Section", style="magenta")
     table.add_column("Priority", style="yellow")
     table.add_column("Due", style="green")
+    table.add_column("Labels", style="cyan")
 
     for task in tasks:
         row = []
@@ -535,6 +536,11 @@ async def list_tasks(
         row.append(str(task.priority))
         due_str = task.due.string if task.due else NA
         row.append(maybe_strip_emojis(due_str))
+        labels_str = NA
+        if task.labels:
+            labels = [maybe_strip_emojis(label) for label in task.labels]
+            labels_str = ", ".join(labels)
+        row.append(labels_str)
         table.add_row(*row)
 
     console.print(table)
