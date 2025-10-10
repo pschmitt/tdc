@@ -3,7 +3,7 @@ name = "todoist-tdc"
 version = "0.3.0"
 description = "todoist cli"
 readme = "README.md"
-license = "LICENSE.md"
+license = {file = "LICENSE"}
 keywords = ["todoist"]
 requires-python = ">=3.12"
 dependencies = [
