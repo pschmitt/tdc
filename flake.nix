@@ -34,6 +34,7 @@
             regex
             rich-argparse
             todoist-api-python
+            wcwidth
           ];
 
           meta = {
