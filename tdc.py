@@ -1,14 +1,4 @@
-#!/usr/bin/env -S uv run --script --quiet
-# /// script
-# requires-python = ">=3.11"
-# dependencies = [
-#   "regex",
-#   "rich",
-#   "rich-argparse",
-#   "todoist-api-python",
-#   "wcwidth",
-# ]
-# ///
+#!/usr/bin/env python3
 
 import argparse
 import asyncio
