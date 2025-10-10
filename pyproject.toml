@@ -7,9 +7,9 @@ license = {file = "LICENSE"}
 keywords = ["todoist"]
 requires-python = ">=3.12"
 dependencies = [
-    "regex>=2024.11.6",
+    "regex>=2024.9.11",
     "rich-argparse>=1.6.0",
-    "todoist-api-python>=3.1.0",
+    "todoist-api-python>=2.1.0",
     "wcwidth>=0.2.13",
 ]
 
