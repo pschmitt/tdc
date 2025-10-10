@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 2
 requires-python = ">=3.9"
 resolution-markers = [
     "python_full_version >= '3.11'",
@@ -518,6 +518,7 @@ dependencies = [
     { name = "regex" },
     { name = "rich-argparse" },
     { name = "todoist-api-python" },
+    { name = "wcwidth" },
 ]
 
 [package.dev-dependencies]
@@ -534,6 +535,7 @@ requires-dist = [
     { name = "regex", specifier = ">=2024.11.6" },
     { name = "rich-argparse", specifier = ">=1.6.0" },
     { name = "todoist-api-python", specifier = ">=2.1.3" },
+    { name = "wcwidth", specifier = ">=0.2.13" },
 ]
 
 [package.metadata.requires-dev]

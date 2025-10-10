@@ -1,4 +1,14 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --script --quiet
+# /// script
+# requires-python = ">=3.11"
+# dependencies = [
+#   "regex",
+#   "rich",
+#   "rich-argparse",
+#   "todoist-api-python",
+#   "wcwidth",
+# ]
+# ///
 
 import argparse
 import asyncio
@@ -11,9 +21,10 @@ from datetime import date, datetime
 
 import regex
 from rich.console import Console
-from rich.table import Table
+from rich.text import Text
 from rich_argparse import RawTextRichHelpFormatter
 from todoist_api_python.api import TodoistAPI
+from wcwidth import wcswidth
 
 console = Console()
 console_err = Console(file=sys.stderr)
@@ -32,7 +43,7 @@ TASK_COLOR = "blue"
 PROJECT_COLOR = "yellow"
 SECTION_COLOR = "red"
 ID_COLOR = "magenta"
-NA = "[italic dim]N/A[/italic dim]"
+NA_TEXT = Text("N/A", style="italic dim")
 
 
 ###############################################################################
@@ -56,32 +67,112 @@ def section_str(section_obj):
     return f"[{SECTION_COLOR}]{section_obj.name}[/{SECTION_COLOR}] (ID: [{ID_COLOR}]{section_obj.id}[/{ID_COLOR}])"
 
 
+ANSI_CSI_RE = regex.compile(r"\x1B[@-_][0-?]*[ -/]*[@-~]")
+ANSI_OSC8_RE = regex.compile(r"\x1B]8;;.*?(?:\x07|\x1B\\)")
 GRAPHEME_CLUSTER_REGEX = regex.compile(r"\X", regex.UNICODE)
-EMOJI_REGEX = regex.compile(r"\p{Emoji}")
+EMOJI_REMOVAL_REGEX = regex.compile(
+    r"(?:\p{Extended_Pictographic}\\x{FE0F}?(?:\\x{200D}\p{Extended_Pictographic}\\x{FE0F}?)*)(?:\\s*)",
+    regex.UNICODE,
+)
+EMOJI_CLUSTER_REGEX = regex.compile(r"\p{Extended_Pictographic}", regex.UNICODE)
+
+
+def strip_ansi(text):
+    """Remove ANSI escape sequences from text."""
+
+    text = ANSI_OSC8_RE.sub("", text)
+    return ANSI_CSI_RE.sub("", text)
 
 
 def remove_emojis(text):
     if not text:
         return text
 
-    clusters = GRAPHEME_CLUSTER_REGEX.findall(text)
-    filtered = []
-
-    for cluster in clusters:
-        if cluster.isascii():
-            filtered.append(cluster)
-            continue
-        if EMOJI_REGEX.search(cluster):
-            continue
-        filtered.append(cluster)
-
-    return "".join(filtered)
+    return EMOJI_REMOVAL_REGEX.sub("", text)
 
 
 def maybe_strip_emojis(text):
     if STRIP_EMOJIS:
         return remove_emojis(text)
     return text
+
+
+def _is_emoji_cluster(cluster):
+    if "\u200d" in cluster or "\ufe0f" in cluster:
+        return True
+    return bool(EMOJI_CLUSTER_REGEX.search(cluster))
+
+
+def _cluster_display_width(cluster):
+    width = wcswidth(cluster)
+    if width < 0:
+        width = 0
+    if _is_emoji_cluster(cluster) and width < 2:
+        return 2
+    return width
+
+
+def visible_width(value):
+    if isinstance(value, Text):
+        raw = value.plain
+    else:
+        raw = str(value)
+    clean = strip_ansi(raw)
+    return sum(_cluster_display_width(cluster) for cluster in GRAPHEME_CLUSTER_REGEX.findall(clean))
+
+
+def emoji_cell(value, *, allow_na=True):
+    if value is None:
+        if allow_na:
+            return NA_TEXT.copy()
+        return Text("")
+    if isinstance(value, Text):
+        return value.copy()
+    return Text(str(value))
+
+
+def styled_cell(value, *, style=None, allow_na=True):
+    text = emoji_cell(value, allow_na=allow_na)
+    if style:
+        text.stylize(style)
+    return text
+
+
+def header_cell(name, *, style=None):
+    header_style = "bold" if style is None else f"bold {style}"
+    return Text(name, style=header_style)
+
+
+def _format_aligned_line(cells, widths):
+    line = Text()
+    for idx, cell in enumerate(cells):
+        cell_text = cell.copy()
+        cell_width = visible_width(cell_text)
+        pad = widths[idx] - cell_width
+        if pad > 0:
+            cell_text.append(" " * pad)
+        if idx:
+            line.append("  ")
+        line.append_text(cell_text)
+    stripped = line.rstrip()
+    return stripped if stripped is not None else line
+
+
+def render_aligned_table(headers, rows):
+    if not headers:
+        return []
+
+    widths = [0] * len(headers)
+    for idx, header in enumerate(headers):
+        widths[idx] = max(widths[idx], visible_width(header))
+    for row in rows:
+        for idx, cell in enumerate(row):
+            widths[idx] = max(widths[idx], visible_width(cell))
+
+    lines = [_format_aligned_line(headers, widths)]
+    for row in rows:
+        lines.append(_format_aligned_line(row, widths))
+    return lines
 
 
 def serialize_todoist_object(obj):
@@ -501,49 +592,51 @@ async def list_tasks(
         console.print_json(json.dumps(data))
         return
 
-    table = Table(box=None, pad_edge=False)
+    headers = []
     if show_ids:
-        table.add_column("ID", style="cyan", no_wrap=True)
-    table.add_column("Content", style="white")
+        headers.append(header_cell("ID", style="cyan"))
+    headers.append(header_cell("Content", style="white"))
     if show_subtasks:
-        table.add_column("Parent Task", style="white")
-    table.add_column("Project", style="magenta")
+        headers.append(header_cell("Parent Task", style="white"))
+    headers.append(header_cell("Project", style="magenta"))
     if show_section_col:
-        table.add_column("Section", style="magenta")
-    table.add_column("Priority", style="yellow")
-    table.add_column("Due", style="green")
-    table.add_column("Labels", style="cyan")
+        headers.append(header_cell("Section", style="magenta"))
+    headers.append(header_cell("Priority", style="yellow"))
+    headers.append(header_cell("Due", style="green"))
+    headers.append(header_cell("Labels", style="cyan"))
 
+    rows = []
     for task in tasks:
         row = []
         if show_ids:
-            row.append(str(task.id))
-        row.append(maybe_strip_emojis(task.content))
+            row.append(styled_cell(str(task.id), style="cyan", allow_na=False))
+        row.append(styled_cell(maybe_strip_emojis(task.content), style="white"))
         if show_subtasks:
-            parent_str = NA
+            parent_str = None
             if task.parent_id and task.parent_id in task_dict:
                 parent_str = maybe_strip_emojis(task_dict[task.parent_id].content)
-            row.append(parent_str)
-        proj_str = NA
+            row.append(styled_cell(parent_str, style="white"))
+        proj_str = None
         if task.project_id in projects_dict:
             proj_str = maybe_strip_emojis(projects_dict[task.project_id].name)
-        row.append(proj_str)
+        row.append(styled_cell(proj_str, style="magenta"))
         if show_section_col:
-            sname = NA
+            sname = None
             if task.section_id in section_mapping:
                 sname = maybe_strip_emojis(section_mapping[task.section_id].name)
-            row.append(sname)
-        row.append(str(task.priority))
-        due_str = task.due.string if task.due else NA
-        row.append(maybe_strip_emojis(due_str))
-        labels_str = NA
+            row.append(styled_cell(sname, style="magenta"))
+        row.append(styled_cell(str(task.priority), style="yellow", allow_na=False))
+        due_str = maybe_strip_emojis(task.due.string) if task.due else None
+        row.append(styled_cell(due_str, style="green"))
+        labels_str = None
         if task.labels:
             labels = [maybe_strip_emojis(label) for label in task.labels]
             labels_str = ", ".join(labels)
-        row.append(labels_str)
-        table.add_row(*row)
+        row.append(styled_cell(labels_str, style="cyan"))
+        rows.append(row)
 
-    console.print(table)
+    for line in render_aligned_table(headers, rows):
+        console.print(line)
 
 
 async def create_task(
@@ -853,15 +946,21 @@ async def list_projects(client, show_ids=False, output_json=False):
         data = [{"id": p.id, "name": maybe_strip_emojis(p.name)} for p in projects]
         console.print_json(json.dumps(data))
         return
-    table = Table(box=None, pad_edge=False)
+    headers = []
     if show_ids:
-        table.add_column("ID", style="cyan", no_wrap=True)
-    table.add_column("Name", style="white")
+        headers.append(header_cell("ID", style="cyan"))
+    headers.append(header_cell("Name", style="white"))
+
+    rows = []
     for p in projects:
-        row = [str(p.id)] if show_ids else []
-        row.append(maybe_strip_emojis(p.name))
-        table.add_row(*row)
-    console.print(table)
+        row = []
+        if show_ids:
+            row.append(styled_cell(str(p.id), style="cyan", allow_na=False))
+        row.append(styled_cell(maybe_strip_emojis(p.name), style="white", allow_na=False))
+        rows.append(row)
+
+    for line in render_aligned_table(headers, rows):
+        console.print(line)
 
 
 async def create_project(client, name):
@@ -1021,15 +1120,21 @@ async def list_sections(client, show_ids, project_name, output_json=False):
         data = [{"id": s.id, "name": maybe_strip_emojis(s.name)} for s in secs]
         console.print_json(json.dumps(data))
         return
-    table = Table(box=None, pad_edge=False)
+    headers = []
     if show_ids:
-        table.add_column("ID", style="cyan", no_wrap=True)
-    table.add_column("Name", style="white")
+        headers.append(header_cell("ID", style="cyan"))
+    headers.append(header_cell("Name", style="white"))
+
+    rows = []
     for s in secs:
-        row = [str(s.id)] if show_ids else []
-        row.append(maybe_strip_emojis(s.name))
-        table.add_row(*row)
-    console.print(table)
+        row = []
+        if show_ids:
+            row.append(styled_cell(str(s.id), style="cyan", allow_na=False))
+        row.append(styled_cell(maybe_strip_emojis(s.name), style="white", allow_na=False))
+        rows.append(row)
+
+    for line in render_aligned_table(headers, rows):
+        console.print(line)
 
 
 async def create_section(client, project_name, section_name):
@@ -1131,15 +1236,21 @@ async def list_labels(client, show_ids=False, output_json=False):
         data = [{"id": la.id, "name": maybe_strip_emojis(la.name)} for la in labels]
         console.print_json(json.dumps(data))
         return
-    table = Table(box=None, pad_edge=False)
+    headers = []
     if show_ids:
-        table.add_column("ID", style="cyan", no_wrap=True)
-    table.add_column("Name", style="white")
+        headers.append(header_cell("ID", style="cyan"))
+    headers.append(header_cell("Name", style="white"))
+
+    rows = []
     for la in labels:
-        row = [str(la.id)] if show_ids else []
-        row.append(maybe_strip_emojis(la.name))
-        table.add_row(*row)
-    console.print(table)
+        row = []
+        if show_ids:
+            row.append(styled_cell(str(la.id), style="cyan", allow_na=False))
+        row.append(styled_cell(maybe_strip_emojis(la.name), style="white", allow_na=False))
+        rows.append(row)
+
+    for line in render_aligned_table(headers, rows):
+        console.print(line)
 
 
 async def create_label(client, name):
