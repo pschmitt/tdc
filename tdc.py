@@ -132,6 +132,34 @@ def task_matches_pattern(task, compiled_pattern):
     return bool(compiled_pattern.search(task_content))
 
 
+def log_operating_across_all_projects():
+    console_err.print("[cyan]Operating across all projects[/cyan]")
+
+
+async def log_operating_on_project(client, project_id, *, project_obj=None):
+    if project_id is None:
+        log_operating_across_all_projects()
+        return
+
+    project = project_obj
+    if project is None:
+        projects = await client.get_projects()
+        project_lookup = {p.id: p for p in projects}
+        project = project_lookup.get(project_id)
+
+    if project:
+        console_err.print(
+            "[cyan]Operating on project "
+            f"\"[{PROJECT_COLOR}]{project.name}[/{PROJECT_COLOR}]\" "
+            f"(ID: [{ID_COLOR}]{project.id}[/{ID_COLOR}])[/cyan]"
+        )
+    else:
+        console_err.print(
+            "[cyan]Operating on project ID "
+            f"[{ID_COLOR}]{project_id}[/{ID_COLOR}][/cyan]"
+        )
+
+
 async def resolve_task_identifier(
     client,
     identifier,
@@ -150,11 +178,11 @@ async def resolve_task_identifier(
         project_lookup = {p.id: p for p in projects}
         project_obj = project_lookup.get(pid)
         if project_obj:
-            console_err.print(
-                f"[cyan]Operating in project {project_str(project_obj)}[/cyan]"
+            await log_operating_on_project(
+                client, pid, project_obj=project_obj
             )
         else:
-            console_err.print(f"[cyan]Operating in project ID {pid}[/cyan]")
+            await log_operating_on_project(client, pid)
 
     elif project_id is not None:
         pid = project_id
@@ -351,14 +379,11 @@ async def list_tasks(
 
     if pid is not None:
         project_obj = projects_dict.get(pid)
-        if project_obj:
-            console_err.print(
-                f"[cyan]Operating in project {project_str(project_obj)}[/cyan]",
-            )
-        else:
-            console_err.print(f"[cyan]Operating in project ID {pid}[/cyan]")
+        await log_operating_on_project(
+            client, pid, project_obj=project_obj
+        )
     else:
-        console_err.print("[cyan]Operating across all projects[/cyan]")
+        log_operating_across_all_projects()
 
     # Get tasks for a project (or all)
     compiled_pattern = compile_content_pattern(content_pattern)
@@ -533,6 +558,7 @@ async def create_task(
         if not pid:
             console_err.print(f"[red]No project found matching '{project_name}'.[/red]")
             sys.exit(1)
+        await log_operating_on_project(client, pid)
     if section_name:
         if not pid:
             console_err.print("[red]--section requires --project[/red]")
@@ -794,12 +820,9 @@ async def delete_task(
             projects = await client.get_projects()
             project_lookup = {p.id: p for p in projects}
             project_obj = project_lookup.get(pid)
-            if project_obj:
-                console_err.print(
-                    f"[cyan]Operating in project {project_str(project_obj)}[/cyan]"
-                )
-            else:
-                console_err.print(f"[cyan]Operating in project ID {pid}[/cyan]")
+            await log_operating_on_project(
+                client, pid, project_obj=project_obj
+            )
             project_id = pid
             return pid
 
@@ -862,6 +885,9 @@ async def update_project(client, name, new_name):
     if not target:
         console_err.print(f"[yellow]No matching project found for '{name}'.[/yellow]")
         return
+
+    await log_operating_on_project(client, target.id, project_obj=target)
+
     try:
         updated = await asyncio.to_thread(
             client.api.update_project, target.id, name=new_name
@@ -880,6 +906,9 @@ async def delete_project(client, name_partial):
             f"[yellow]No project found matching '{name_partial}'.[/yellow]"
         )
         return
+
+    await log_operating_on_project(client, pid)
+
     try:
         await asyncio.to_thread(client.api.delete_project, pid)
         console.print(f"[green]Deleted project ID {pid}[/green]")
@@ -903,6 +932,8 @@ async def clear_project(client, name_partial, delete_sections=False):
     project_desc = (
         project_str(project_obj) if project_obj else f"project ID {pid}"
     )
+
+    await log_operating_on_project(client, pid, project_obj=project_obj)
 
     fatal_error = False
 
@@ -971,6 +1002,9 @@ async def list_sections(client, show_ids, project_name, output_json=False):
     if not pid:
         console_err.print(f"[red]No project found matching '{project_name}'.[/red]")
         sys.exit(1)
+
+    await log_operating_on_project(client, pid)
+
     try:
         secs = await client.get_sections(pid)
     except Exception as e:
@@ -997,6 +1031,9 @@ async def create_section(client, project_name, section_name):
     if not pid:
         console_err.print(f"[red]No project found matching '{project_name}'.[/red]")
         sys.exit(1)
+
+    await log_operating_on_project(client, pid)
+
     try:
         secs = await client.get_sections(pid)
         for s in secs:
@@ -1020,6 +1057,7 @@ async def update_section(client, project_name, section_name, new_name):
     if not pid:
         console_err.print(f"[red]No project found matching '{project_name}'.[/red]")
         sys.exit(1)
+    await log_operating_on_project(client, pid)
     secs = await client.get_sections(pid)
     target = None
     for s in secs:
@@ -1047,6 +1085,7 @@ async def delete_section(client, project_name, section_partial):
     if not pid:
         console_err.print(f"[red]No project found matching '{project_name}'.[/red]")
         sys.exit(1)
+    await log_operating_on_project(client, pid)
     try:
         secs = await client.get_sections(pid)
         match_id = None
