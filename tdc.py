@@ -1,4 +1,17 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --script --quiet
+# /// script
+# requires-python = ">=3.9"
+# dependencies = [
+#   "regex",
+#   "wcwidth",
+#   "rich",
+#   "rich-argparse",
+#   "todoist-api-python>=3.1.0",
+#   "pyyaml",
+#   "tomli",
+#   "tomli-w",
+# ]
+# ///
 
 import argparse
 import asyncio
@@ -7,6 +20,7 @@ import logging
 import os
 import sys
 from collections import namedtuple
+from collections.abc import Iterable
 from datetime import date, datetime
 
 import regex
@@ -34,6 +48,28 @@ PROJECT_COLOR = "yellow"
 SECTION_COLOR = "red"
 ID_COLOR = "magenta"
 NA_TEXT = Text("N/A", style="italic dim")
+
+
+def flatten_paginated(result):
+    if result is None:
+        return []
+    if isinstance(result, (str, bytes)):
+        return [result]
+    if isinstance(result, dict):
+        return [result]
+    if isinstance(result, Iterable):
+        items = []
+        for chunk in result:
+            if isinstance(chunk, (list, tuple, set)):
+                items.extend(chunk)
+            else:
+                items.append(chunk)
+        return items
+    return [result]
+
+
+def consume_paginated(callable_, *args, **kwargs):
+    return flatten_paginated(callable_(*args, **kwargs))
 
 
 ###############################################################################
@@ -330,13 +366,15 @@ class TodoistClient:
 
     async def get_projects(self):
         if self._projects is None:
-            self._projects = await asyncio.to_thread(self.api.get_projects)
+            self._projects = await asyncio.to_thread(
+                consume_paginated, self.api.get_projects
+            )
         return self._projects
 
     async def get_sections(self, project_id):
         if project_id not in self._sections:
             self._sections[project_id] = await asyncio.to_thread(
-                self.api.get_sections, project_id=project_id
+                consume_paginated, self.api.get_sections, project_id=project_id
             )
         return self._sections[project_id]
 
@@ -345,11 +383,23 @@ class TodoistClient:
         key = (scope, filter_str)
         if key not in self._tasks:
             kwargs = {}
-            if project_id is not None:
+            if project_id is not None and not filter_str:
                 kwargs["project_id"] = project_id
             if filter_str:
-                kwargs["filter"] = filter_str
-            self._tasks[key] = await asyncio.to_thread(self.api.get_tasks, **kwargs)
+                tasks = await asyncio.to_thread(
+                    consume_paginated, self.api.filter_tasks, query=filter_str
+                )
+                if project_id is not None:
+                    tasks = [
+                        task
+                        for task in tasks
+                        if getattr(task, "project_id", None) == project_id
+                    ]
+            else:
+                tasks = await asyncio.to_thread(
+                    consume_paginated, self.api.get_tasks, **kwargs
+                )
+            self._tasks[key] = tasks
         return self._tasks[key]
 
     def invalidate_tasks(self, project_id=None):
@@ -404,7 +454,7 @@ async def validate_labels(client, label_names):
         return []
 
     try:
-        labels = await asyncio.to_thread(client.api.get_labels)
+        labels = await asyncio.to_thread(consume_paginated, client.api.get_labels)
     except Exception as exc:
         console_err.print(f"[red]Failed to fetch labels: {exc}[/red]")
         sys.exit(1)
@@ -1217,7 +1267,7 @@ async def delete_section(client, project_name, section_partial):
 ###############################################################################
 async def list_labels(client, show_ids=False, output_json=False):
     try:
-        labels = await asyncio.to_thread(client.api.get_labels)
+        labels = await asyncio.to_thread(consume_paginated, client.api.get_labels)
     except Exception as e:
         console_err.print(f"[red]Failed to fetch labels: {e}[/red]")
         sys.exit(1)
@@ -1245,7 +1295,7 @@ async def list_labels(client, show_ids=False, output_json=False):
 
 async def create_label(client, name):
     try:
-        labels = await asyncio.to_thread(client.api.get_labels)
+        labels = await asyncio.to_thread(consume_paginated, client.api.get_labels)
         for la in labels:
             if la.name.strip().lower() == name.strip().lower():
                 console_err.print(f"[yellow]Label {la.name} already exists.[/yellow]")
@@ -1261,7 +1311,7 @@ async def create_label(client, name):
 
 async def update_label(client, name, new_name):
     try:
-        labels = await asyncio.to_thread(client.api.get_labels)
+        labels = await asyncio.to_thread(consume_paginated, client.api.get_labels)
         target = None
         for la in labels:
             if la.name.strip().lower() == name.strip().lower():
@@ -1283,7 +1333,7 @@ async def update_label(client, name, new_name):
 
 async def delete_label(client, name_partial):
     try:
-        labels = await asyncio.to_thread(client.api.get_labels)
+        labels = await asyncio.to_thread(consume_paginated, client.api.get_labels)
         target = None
         for la in labels:
             if name_partial.lower() in la.name.lower():
@@ -1323,7 +1373,7 @@ async def dump_all_data(client, output_path=None, indent=None):
                     continue
                 seen_section_ids.add(section.id)
                 sections.append(section)
-        labels = await asyncio.to_thread(client.api.get_labels)
+        labels = await asyncio.to_thread(consume_paginated, client.api.get_labels)
     except Exception as exc:
         console_err.print(f"[red]Failed to fetch Todoist data: {exc}[/red]")
         sys.exit(1)
@@ -1331,7 +1381,9 @@ async def dump_all_data(client, output_path=None, indent=None):
     shared_labels = []
     if hasattr(client.api, "get_shared_labels"):
         try:
-            shared_labels = await asyncio.to_thread(client.api.get_shared_labels)
+            shared_labels = await asyncio.to_thread(
+                consume_paginated, client.api.get_shared_labels
+            )
         except Exception as exc:
             console_err.print(f"[red]Failed to fetch shared labels: {exc}[/red]")
             sys.exit(1)
@@ -1341,7 +1393,7 @@ async def dump_all_data(client, output_path=None, indent=None):
         for project in projects:
             try:
                 project_comments = await asyncio.to_thread(
-                    client.api.get_comments, project_id=project.id
+                    consume_paginated, client.api.get_comments, project_id=project.id
                 )
             except Exception as exc:
                 console_err.print(
@@ -1356,7 +1408,9 @@ async def dump_all_data(client, output_path=None, indent=None):
         for project in projects:
             try:
                 project_collaborators = await asyncio.to_thread(
-                    client.api.get_collaborators, project_id=project.id
+                    consume_paginated,
+                    client.api.get_collaborators,
+                    project_id=project.id,
                 )
             except Exception as exc:
                 console_err.print(
