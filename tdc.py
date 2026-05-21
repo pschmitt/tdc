@@ -1557,7 +1557,7 @@ async def async_main():
         parents=[common_parser],
     )
     task_subparsers = task_parser.add_subparsers(
-        dest="task_command", required=True, help="Task subcommand"
+        dest="task_command", required=False, help="Task subcommand"
     )
     list_task_parser = task_subparsers.add_parser(
         "list",
@@ -1683,7 +1683,7 @@ async def async_main():
         parents=[common_parser],
     )
     project_subparsers = project_parser.add_subparsers(
-        dest="project_command", required=True, help="Project subcommand"
+        dest="project_command", required=False, help="Project subcommand"
     )
     project_subparsers.add_parser(
         "list",
@@ -1735,7 +1735,7 @@ async def async_main():
         parents=[common_parser],
     )
     section_subparsers = section_parser.add_subparsers(
-        dest="section_command", required=True, help="Section subcommand"
+        dest="section_command", required=False, help="Section subcommand"
     )
     section_subparsers.add_parser(
         "list",
@@ -1780,7 +1780,7 @@ async def async_main():
         parents=[common_parser],
     )
     label_subparsers = label_parser.add_subparsers(
-        dest="label_command", required=True, help="Label subcommand"
+        dest="label_command", required=False, help="Label subcommand"
     )
     label_subparsers.add_parser(
         "list",
@@ -1869,21 +1869,29 @@ async def async_main():
             break
     # Normalize subcommand for each top-level command.
     if args.command == "task":
+        if not args.task_command:
+            args.task_command = "list"
         for canonical, aliases in subcmd_aliases.items():
             if args.task_command == canonical or args.task_command in aliases:
                 args.task_command = canonical
                 break
     elif args.command == "project":
+        if not args.project_command:
+            args.project_command = "list"
         for canonical, aliases in subcmd_aliases.items():
             if args.project_command == canonical or args.project_command in aliases:
                 args.project_command = canonical
                 break
     elif args.command == "section":
+        if not getattr(args, "section_command", None):
+            args.section_command = "list"
         for canonical, aliases in subcmd_aliases.items():
             if args.section_command == canonical or args.section_command in aliases:
                 args.section_command = canonical
                 break
     elif args.command == "label":
+        if not args.label_command:
+            args.label_command = "list"
         for canonical, aliases in subcmd_aliases.items():
             if args.label_command == canonical or args.label_command in aliases:
                 args.label_command = canonical
