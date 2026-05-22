@@ -628,7 +628,7 @@ async def list_tasks(
         row.append(na_or(due_str))
         labels_str = None
         if task.labels:
-            labels_str = ", ".join(maybe_strip_emojis(l) for l in task.labels)
+            labels_str = ", ".join(maybe_strip_emojis(label) for label in task.labels)
         row.append(na_or(labels_str))
         table.add_row(*row)
 
@@ -1416,7 +1416,7 @@ async def async_main():
         "create": ["cr", "c", "add", "a"],
         "update": ["upd", "u"],
         "delete": ["del", "d", "remove", "rm"],
-        "today": ["td", "to"],
+        "today": ["td", "to", "tod"],
     }
 
     # Create a common parent parser for --project and --section options.
@@ -1530,6 +1530,13 @@ async def async_main():
         help="Regex (case-insensitive) to match task content",
     )
     task_subparsers.add_parser(
+        "today",
+        aliases=subcmd_aliases["today"],
+        help="List tasks due today or overdue",
+        formatter_class=RawTextRichHelpFormatter,
+        parents=[common_parser],
+    )
+    subparsers.add_parser(
         "today",
         aliases=subcmd_aliases["today"],
         help="List tasks due today or overdue",
@@ -1810,6 +1817,9 @@ async def async_main():
         if args.command == canonical or args.command in aliases:
             args.command = canonical
             break
+    if args.command == "today" or args.command in subcmd_aliases["today"]:
+        args.command = "task"
+        args.task_command = "today"
     # Normalize subcommand for each top-level command.
     if args.command == "task":
         if not args.task_command:

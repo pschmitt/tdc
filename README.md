@@ -41,6 +41,14 @@ tdc --help
 tdc --api-key <YOUR_API_KEY> task list
 ```
 
+### Show Today's Tasks
+
+```
+tdc --api-key <YOUR_API_KEY> today
+```
+
+This is equivalent to `tdc --api-key <YOUR_API_KEY> task today` and shows tasks due today or overdue.
+
 - **Filter by project** (partial match):
   ```
   tdc --api-key <YOUR_API_KEY> task list --project "Work"
