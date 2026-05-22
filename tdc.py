@@ -503,8 +503,10 @@ async def list_tasks(
         if any(t.section_id for t in tasks):
             show_section_col = True
             unique_pids = {t.project_id for t in tasks if t.section_id}
-            for upid in unique_pids:
-                secs = await client.get_sections(upid)
+            section_lists = await asyncio.gather(
+                *(client.get_sections(upid) for upid in unique_pids)
+            )
+            for secs in section_lists:
                 for s in secs:
                     section_mapping[s.id] = s
 
