@@ -113,6 +113,19 @@ def maybe_strip_emojis(text):
     return text
 
 
+def normalize_due_date(value):
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    if isinstance(value, str):
+        try:
+            return date.fromisoformat(value[:10])
+        except ValueError:
+            return None
+    return None
+
+
 
 _COLUMN_STYLES = (
     "cyan",
@@ -508,8 +521,7 @@ async def list_tasks(
                     t
                     for t in tasks
                     if t.due
-                    and getattr(t.due, "date", None)
-                    and datetime.strptime(t.due.date, "%Y-%m-%d").date() == today_date
+                    and normalize_due_date(getattr(t.due, "date", None)) == today_date
                 ]
             )
         if filter_overdue:
@@ -518,8 +530,10 @@ async def list_tasks(
                     t
                     for t in tasks
                     if t.due
-                    and getattr(t.due, "date", None)
-                    and datetime.strptime(t.due.date, "%Y-%m-%d").date() < today_date
+                    and (
+                        due_date := normalize_due_date(getattr(t.due, "date", None))
+                    )
+                    and due_date < today_date
                 ]
             )
         # Remove duplicates (by task id)
