@@ -27,3 +27,7 @@ dev = [
 Homepage = "https://github.com/pschmitt/tdc"
 Repository = "https://github.com/pschmitt/tdc"
 Issues = "https://github.com/pschmitt/tdc/issues"
+
+[tool.ruff.lint]
+# Top-level CLI handlers intentionally catch Exception to report errors cleanly
+ignore = ["BLE001"]

@@ -22,6 +22,7 @@ import sys
 from collections import namedtuple
 from collections.abc import Iterable
 from datetime import date, datetime
+from pathlib import Path
 
 import regex
 from rich.console import Console
@@ -514,7 +515,7 @@ async def list_tasks(
         tasks = [t for t in tasks if task_matches_pattern(t, compiled_pattern)]
 
     # Apply extra filters (union if more than one is provided)
-    today_date = date.today()
+    today_date = datetime.now().astimezone().date()
     if filter_today or filter_overdue:
         union_tasks = []
         if filter_today:
@@ -1386,8 +1387,9 @@ async def dump_all_data(client, output_path=None, indent=None):
 
     if output_path:
         try:
-            with open(output_path, "w", encoding="utf-8") as handle:
-                handle.write(json_output)
+            await asyncio.to_thread(
+                Path(output_path).write_text, json_output, encoding="utf-8"
+            )
         except Exception as exc:
             console_err.print(
                 f"[red]Failed to write dump to {output_path}: {exc}[/red]"
@@ -1808,7 +1810,7 @@ async def async_main():
     delete_all_sections = args.section == SECTION_ALL_SENTINEL
     if delete_all_sections:
         args.section = None
-    setattr(args, "delete_all_sections", delete_all_sections)
+    args.delete_all_sections = delete_all_sections
 
     if args.debug:
         logging.basicConfig(level=logging.DEBUG)
