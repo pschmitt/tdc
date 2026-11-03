@@ -6,15 +6,8 @@
     flake-utils.url = "github:numtide/flake-utils";
   };
 
-  outputs =
-    {
-      self,
-      nixpkgs,
-      flake-utils,
-      ...
-    }:
-    flake-utils.lib.eachDefaultSystem (
-      system:
+  outputs = { self, nixpkgs, flake-utils, ... }:
+    flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
 
@@ -25,10 +18,8 @@
 
           src = ./.;
 
-          buildInputs = [
-            pkgs.python3Packages.setuptools
-            pkgs.python3Packages.wheel
-          ];
+          buildInputs =
+            [ pkgs.python3Packages.setuptools pkgs.python3Packages.wheel ];
 
           propagatedBuildInputs = with pkgs.python3Packages; [
             regex
@@ -69,7 +60,9 @@
 
           # Environment variables and shell hooks
           shellHook = ''
-            export PYTHONPATH=${self.packages.${system}.tdc}/lib/python3.x/site-packages
+            export PYTHONPATH=${
+              self.packages.${system}.tdc
+            }/lib/python3.x/site-packages
             echo -e "\e[34mWelcome to the tdc development shell!\e[0m"
             # Activate a virtual environment if desired
             # source .venv/bin/activate
@@ -88,13 +81,11 @@
           #   fi
           # '';
         };
-      in
-      {
+      in {
         # pkgs
         packages.tdc = tdc;
         defaultPackage = tdc;
 
         devShells.default = devShell;
-      }
-    );
+      });
 }
