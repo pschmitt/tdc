@@ -12,3 +12,8 @@ projects, and sections.
   preserve the caller's existing behavior and check coverage.
 - Do not run commands against a user's Todoist account while validating
   changes; use a test account if API behavior must be checked.
+- Keep `packages.default` canonical and retain the named `tdc` package output;
+  do not add the legacy `defaultPackage` alias.
+- Run Nix evaluation and builds on an `rworker`, never on the local host.
+- The Python dev shell should inherit dependencies with `inputsFrom = [ tdc ]`
+  and add the checkout to `PYTHONPATH` when importing source directly.

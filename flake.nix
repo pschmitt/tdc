@@ -6,8 +6,10 @@
     flake-utils.url = "github:numtide/flake-utils";
   };
 
-  outputs = { self, nixpkgs, flake-utils, ... }:
-    flake-utils.lib.eachDefaultSystem (system:
+  outputs =
+    { nixpkgs, flake-utils, ... }:
+    flake-utils.lib.eachDefaultSystem (
+      system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
 
@@ -18,8 +20,10 @@
 
           src = ./.;
 
-          buildInputs =
-            [ pkgs.python3Packages.setuptools pkgs.python3Packages.wheel ];
+          buildInputs = [
+            pkgs.python3Packages.setuptools
+            pkgs.python3Packages.wheel
+          ];
 
           propagatedBuildInputs = with pkgs.python3Packages; [
             regex
@@ -41,14 +45,7 @@
         devShell = pkgs.mkShell {
           name = "tdc-devshell";
 
-          buildInputs = [
-            pkgs.python3
-            pkgs.python3Packages.setuptools
-            pkgs.python3Packages.wheel
-            pkgs.python3Packages.rich
-            pkgs.python3Packages.rich-argparse
-            pkgs.python3Packages.todoist-api-python
-          ];
+          inputsFrom = [ tdc ];
 
           # Additional development tools
           nativeBuildInputs = [
@@ -60,9 +57,7 @@
 
           # Environment variables and shell hooks
           shellHook = ''
-            export PYTHONPATH=${
-              self.packages.${system}.tdc
-            }/lib/python3.x/site-packages
+            export PYTHONPATH="$PWD''${PYTHONPATH:+:$PYTHONPATH}"
             echo -e "\e[34mWelcome to the tdc development shell!\e[0m"
             # Activate a virtual environment if desired
             # source .venv/bin/activate
@@ -81,11 +76,13 @@
           #   fi
           # '';
         };
-      in {
+      in
+      {
         # pkgs
         packages.tdc = tdc;
-        defaultPackage = tdc;
+        packages.default = tdc;
 
         devShells.default = devShell;
-      });
+      }
+    );
 }
