@@ -6,24 +6,21 @@
     flake-utils.url = "github:numtide/flake-utils";
   };
 
-  outputs =
-    { nixpkgs, flake-utils, ... }:
-    flake-utils.lib.eachDefaultSystem (
-      system:
+  outputs = { nixpkgs, flake-utils, ... }:
+    flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
 
         tdc = pkgs.python3Packages.buildPythonApplication {
           pname = "tdc";
-          version = (builtins.fromTOML (builtins.readFile ./pyproject.toml)).project.version;
+          version = (builtins.fromTOML
+            (builtins.readFile ./pyproject.toml)).project.version;
           pyproject = true;
 
           src = ./.;
 
-          buildInputs = [
-            pkgs.python3Packages.setuptools
-            pkgs.python3Packages.wheel
-          ];
+          buildInputs =
+            [ pkgs.python3Packages.setuptools pkgs.python3Packages.wheel ];
 
           propagatedBuildInputs = with pkgs.python3Packages; [
             regex
@@ -76,13 +73,11 @@
           #   fi
           # '';
         };
-      in
-      {
+      in {
         # pkgs
         packages.tdc = tdc;
         packages.default = tdc;
 
         devShells.default = devShell;
-      }
-    );
+      });
 }
