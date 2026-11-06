@@ -13,8 +13,9 @@
 
         tdc = pkgs.python3Packages.buildPythonApplication {
           pname = "tdc";
-          version = (builtins.fromTOML
-            (builtins.readFile ./pyproject.toml)).project.version;
+          inherit ((builtins.fromTOML
+            (builtins.readFile ./pyproject.toml)).project)
+            version;
           pyproject = true;
 
           src = ./.;
